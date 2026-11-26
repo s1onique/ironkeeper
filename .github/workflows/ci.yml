@@ -204,10 +204,14 @@ jobs:
           set -euo pipefail
           python3 -m pip install --quiet --disable-pip-version-check \
             "check-jsonschema==0.31.2"
+          # Every repository schema must itself be a valid Draft 2020-12
+          # schema. `--check-metaschema` validates the schema against the
+          # metaschema; validating a schema against itself would be
+          # meaningless.
           for s in config report error version; do
-            check-jsonschema --schemafile "schemas/v1/$s.schema.json" \
-              "schemas/v1/$s.schema.json"
+            check-jsonschema --check-metaschema "schemas/v1/$s.schema.json"
           done
+          # The example configuration must satisfy the configuration schema.
           check-jsonschema --schemafile schemas/v1/config.schema.json \
             examples/ironkeeper.json
 

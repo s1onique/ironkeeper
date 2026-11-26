@@ -16,9 +16,34 @@
 import std/[os, strutils, algorithm]
 
 const
-  SchemaDir = "schemas/v1"
-  OutputFile = "src/ironkeeper/contracts/schemaregistry.nim"
+  SchemaDirName = "schemas/v1"
+  OutputFileName = "src/ironkeeper/contracts/schemaregistry.nim"
 
+proc findRepoRoot(): string =
+  ## Locate the repository root by walking up from the working directory
+  ## until the schema directory is found.
+  ##
+  ## The tool must work regardless of the working directory it is invoked
+  ## from, because CI and a developer workstation do not necessarily
+  ## agree on it. `currentSourcePath()` is not usable here: at run time it
+  ## points at the compiled binary in the Nim cache, and at compile time
+  ## it points at the cached copy of this file.
+  var dir = getCurrentDir()
+  while true:
+    if dirExists(dir / SchemaDirName):
+      return dir
+    let parent = dir.parentDir()
+    if parent == dir:
+      return ""
+    dir = parent
+
+proc repoRoot(): string = findRepoRoot()
+
+proc schemaDir(): string = repoRoot() / SchemaDirName
+
+proc outputFile(): string = repoRoot() / OutputFileName
+
+const
   Header = """## Embedded JSON Schema registry.
 ##
 ## THIS FILE IS GENERATED. Do not edit it by hand.
@@ -49,17 +74,18 @@ proc nimStringLiteral(s: string): string =
 proc main() =
   let checkOnly = "--check" in commandLineParams()
 
-  if not dirExists(SchemaDir):
-    die("schema directory not found: " & SchemaDir)
+  if repoRoot() == "" or not dirExists(schemaDir()):
+    die("schema directory not found; run this from inside the repository: " &
+      schemaDir())
 
   var names: seq[string]
-  for kind, path in walkDir(SchemaDir):
+  for kind, path in walkDir(schemaDir()):
     if kind == pcFile and path.endsWith(".schema.json"):
       names.add path.extractFilename().replace(".schema.json", "")
   names.sort()
 
   if names.len == 0:
-    die("no schemas found in " & SchemaDir)
+    die("no schemas found in " & schemaDir())
 
   var body = Header
   for n in names:
@@ -71,7 +97,7 @@ proc main() =
   # elements assigned individually.
   body.add "let\n  embeddedSchemaTexts = [\n"
   for n in names:
-    let text = readFile(SchemaDir / (n & ".schema.json"))
+    let text = readFile(schemaDir() / (n & ".schema.json"))
     body.add "    " & nimStringLiteral(text) & ",\n"
   body.add "  ]\n\n"
 
@@ -94,14 +120,14 @@ proc schemaNode*(name: string): JsonNode =
 """
 
   if checkOnly:
-    if not fileExists(OutputFile):
-      die("output file does not exist: " & OutputFile)
-    let current = readFile(OutputFile)
+    if not fileExists(outputFile()):
+      die("output file does not exist: " & outputFile())
+    let current = readFile(outputFile())
     if current != body:
       die("embedded schemas are out of date; run: nim r tools/embed_schemas.nim")
     echo "embed_schemas: OK (" & $names.len & " schemas, no drift)"
   else:
-    writeFile(OutputFile, body)
-    echo "embed_schemas: wrote " & OutputFile & " (" & $names.len & " schemas)"
+    writeFile(outputFile(), body)
+    echo "embed_schemas: wrote " & outputFile() & " (" & $names.len & " schemas)"
 
 main()
