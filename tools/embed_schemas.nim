@@ -13,7 +13,7 @@
 ##
 ## The `--check` mode is what CI runs. It never writes.
 
-import std/[os, strutils, json, algorithm]
+import std/[os, strutils, algorithm]
 
 const
   SchemaDir = "schemas/v1"
@@ -47,7 +47,7 @@ proc nimStringLiteral(s: string): string =
   result = "\"\"\"" & s & "\"\"\""
 
 proc main() =
-  let checkOnly = " --check" in commandLineParams()
+  let checkOnly = "--check" in commandLineParams()
 
   if not dirExists(SchemaDir):
     die("schema directory not found: " & SchemaDir)

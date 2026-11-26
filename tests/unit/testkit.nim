@@ -12,7 +12,7 @@
 ##   t.checkEq("reports the right count", parseStrict("{}").node.len, 0)
 ##   t.finish()
 
-import std/[strutils, times, os]
+import std/[strutils, times]
 
 type
   TestSuite = ref object

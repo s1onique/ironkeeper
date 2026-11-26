@@ -5,7 +5,7 @@
 ## duplicate member names (including names that are equal only after
 ## unescaping), no non-finite numbers, and bounded size and depth.
 
-import std/[json, strutils]
+import std/[json]
 
 import testkit
 import ironkeeper/json/strictjson

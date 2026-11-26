@@ -3,7 +3,7 @@
 ## The argument parser is the outermost gate: an unknown option must be a
 ## hard failure, never a silently ignored argument.
 
-import std/[strutils, tables]
+import std/[tables]
 
 import testkit
 import ironkeeper/cli/args as argmod

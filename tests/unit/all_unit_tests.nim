@@ -4,8 +4,6 @@
 ## and returns a process exit code. The aggregator runs them all and fails
 ## if any of them fails.
 
-import std/os
-
 import cli_args_tests
 import config_semantics_tests
 import strictjson_tests
