@@ -12,7 +12,7 @@
 ##   * A failure always produces a nonzero exit status and, in JSON mode, a
 ##     document conforming to `schemas/v1/error.schema.json`.
 
-import std/[json, strutils, os, tables]
+import std/[json, strutils, os]
 
 from ironkeeper/core/errors import IrkErrorImpl, IrkErrorKind, newIrkError, exitCodeFor, codeFor, ExitOk
 from ironkeeper/core/version import Version, ApplicationName
@@ -76,17 +76,15 @@ Usage: ironkeeper report validate --file <path> [--json]
 Validates a report document against schemas/v1/report.schema.json.
 """
 
-  VersionUsage = """
-Usage: ironkeeper version [--json]
-
-Prints the version identity of this build.
-"""
-
 type
   CliContext = object
     stdoutBuf: string
     stderrBuf: string
     json: bool
+    producedResult: bool
+      ## True once a machine-readable *result* document has been written.
+      ## When set, a subsequent failure does not append an error document,
+      ## so that stdout carries exactly one JSON document.
 
 proc writeOut(ctx: var CliContext, text: string) =
   ## Append human-readable or machine-readable output to the stdout buffer.
@@ -94,16 +92,11 @@ proc writeOut(ctx: var CliContext, text: string) =
   if not ctx.stdoutBuf.endsWith("\n"):
     ctx.stdoutBuf.add "\n"
 
-proc writeErr(ctx: var CliContext, text: string) =
-  ## Append a diagnostic to the stderr buffer.
-  ctx.stderrBuf.add text
-  if not ctx.stderrBuf.endsWith("\n"):
-    ctx.stderrBuf.add "\n"
-
 proc emitJson(ctx: var CliContext, node: JsonNode) =
   ## Write a machine-readable document to stdout.
   ctx.stdoutBuf.add node.pretty(2)
   ctx.stdoutBuf.add "\n"
+  ctx.producedResult = true
 
 proc failInvocation(msg: string) {.noreturn.} =
   raise newIrkError(EInvalidInvocation, msg)
@@ -238,6 +231,10 @@ proc cmdConfigValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
       ctx.writeOut(line)
 
   # The exit status follows the assessment, not merely the execution state.
+  #
+  # When a report has already been produced, that report *is* the
+  # machine-readable result: no second document is emitted, so that stdout
+  # always carries exactly one JSON document in machine-readable mode.
   if report.hasAssessment and report.verdict != avPass:
     if outcome.error != nil:
       raise newIrkError(EInternalFailure, report.assessmentSummary)
@@ -359,15 +356,20 @@ proc run*(argv: seq[string]): int =
   ##
   ## `argv` holds the arguments *without* the program name, exactly as
   ## `commandLineParams()` returns them.
-  var ctx = CliContext(stdoutBuf: "", stderrBuf: "", json: false)
+  var ctx = CliContext(stdoutBuf: "", stderrBuf: "", json: false, producedResult: false)
   var code = ExitOk
   try:
     dispatch(ctx, argv)
   except IrkErrorImpl as e:
     # A classified failure: render it and return its exit code.
-    if ctx.json:
+    #
+    # If a machine-readable result document was already produced, it *is*
+    # the answer and stdout must carry exactly one JSON document. The
+    # failure is then summarised on stderr only.
+    if ctx.json and not ctx.producedResult:
       ctx.stdoutBuf.add errorDocument(e.data.kind, e.data.message, e.data.detail).pretty(2)
       ctx.stdoutBuf.add "\n"
+      ctx.producedResult = true
     else:
       ctx.stderrBuf.add "error: " & e.data.message
       if e.data.detail.len > 0:

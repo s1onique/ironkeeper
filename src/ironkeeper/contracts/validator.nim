@@ -81,16 +81,20 @@ proc draftOf(schema: JsonNode): string =
   ""
 
 proc collectExternalRefs(schema: JsonNode, prefix = ""): seq[string] =
-  ## Collect every `$ref` in `schema` that is not a local JSON Pointer.
+  ## Collect every `$ref` in `schema` that is not a local JSON Pointer and
+  ## not the bundled Draft 2020-12 metaschema.
   ##
-  ## Only `#`-prefixed pointers are considered local. Anything else is an
-  ## external reference and is prohibited by Ironkeeper's contract rules.
+  ## Only `#`-prefixed pointers are considered local. The metaschema URI is
+  ## allowed because it is bundled in the registry and resolved entirely
+  ## offline; it is the only absolute reference Ironkeeper permits.
+  ## Everything else is prohibited, because resolving it would require a
+  ## network fetch.
   if schema.kind == JObject:
     for key, value in schema.pairs:
       let loc = if prefix.len == 0: "/" & key else: prefix & "/" & key
       if key == "$ref" and value.kind == JString:
         let target = value.getStr
-        if not target.startsWith("#"):
+        if not target.startsWith("#") and target != MetaschemaRef:
           result.add target
       else:
         result.add collectExternalRefs(value, loc)

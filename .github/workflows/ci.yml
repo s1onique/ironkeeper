@@ -1,0 +1,191 @@
+# Ironkeeper continuous integration.
+#
+# The workflow runs on every push to any branch and on every pull
+# request. It performs no deployment, publishes no release, needs no
+# credentials and touches no storage device.
+#
+# The build and the tests run natively on GitHub-hosted Linux runners:
+# `ubuntu-24.04` for amd64 and `ubuntu-24.04-arm` for arm64. No
+# cross-architecture emulation is used, so an arm64 result is a genuine
+# arm64 execution.
+
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - "act/**"
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: the workflow reads the repository and runs a build.
+# It has no write access to the repository and needs no secret.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  NIM_VERSION: "2.4.2"
+  # sha256 of the official linux_x64 distribution, as published at
+  # https://nim-lang.org/download/nim-2.4.2-linux_x64.tar.xz.sha256
+  NIM_SHA256: "0ee5b16e81852a956d4fddb4aa44b5958c645c992132fa43be45f489573ee325"
+
+jobs:
+  # ---------------------------------------------------------------------
+  # The authoritative build, test and validation gate.
+  #
+  # The same repository-owned entry points are used locally and here:
+  # `tools/build.sh` and the three test binaries it produces. There is no
+  # second implementation of the test suite for CI.
+  # ---------------------------------------------------------------------
+  build-test:
+    name: build and test (${{ matrix.architecture }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: amd64
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install the pinned Nim toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/nim"
+          cd "$RUNNER_TEMP/nim"
+          curl -fsSLO "https://nim-lang.org/download/nim-${NIM_VERSION}-linux_x64.tar.xz"
+          echo "${NIM_SHA256}  nim-${NIM_VERSION}-linux_x64.tar.xz" | sha256sum -c -
+          tar xf "nim-${NIM_VERSION}-linux_x64.tar.xz"
+          echo "$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin" >> "$GITHUB_PATH"
+
+      - name: Record the exact execution environment
+        run: |
+          set -euo pipefail
+          {
+            echo "architecture: ${{ matrix.architecture }}"
+            echo "runner: ${{ matrix.runner }}"
+            echo "runner_arch: $(uname -m)"
+            echo "os: $(uname -srm)"
+            echo "image: ${ImageOS:-unknown} ${ImageVersion:-unknown}"
+            echo "nim_version: $(nim --version | head -1)"
+            echo "nimble_version: $(nimble --version | head -1)"
+            echo "cc_version: $(gcc --version | head -1)"
+          } | tee environment.txt
+          cat environment.txt
+
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          # jschema is pinned exactly in ironkeeper.nimble. Resolving it
+          # through the package registry records the exact artefact.
+          nimble setup -y
+          nimble develop -y --accept || true
+          nimble dump --json > nimble-dump.json || true
+          # The resolved dependency must be the pinned version.
+          test -d "$HOME/.nimble/pkgs2/jschema-0.1.0"
+          ls -la "$HOME/.nimble/pkgs2"
+
+      - name: Type-check every module
+        run: nimble check
+
+      - name: Debug build and unit tests
+        run: |
+          set -euo pipefail
+          export IRK_DEPS_PATH="$HOME/.nimble/pkgs2/jschema-0.1.0/src"
+          tools/build.sh
+          ./build/unit_tests
+          ./build/contract_tests
+
+      - name: Compiled CLI integration tests
+        run: |
+          set -euo pipefail
+          ./build/integration_tests
+
+      - name: Verify the embedded schemas match the repository
+        run: nim r --hints:off tools/embed_schemas.nim --check
+
+      - name: Independent schema validation
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet --disable-pip-version-check \
+            "check-jsonschema==0.31.2"
+          for s in config report error version; do
+            check-jsonschema --schemafile "schemas/v1/$s.schema.json" \
+              "schemas/v1/$s.schema.json"
+          done
+          check-jsonschema --schemafile schemas/v1/config.schema.json \
+            examples/ironkeeper.json
+
+      - name: Cross-check the generated machine-readable output
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          ./build/ironkeeper config validate \
+            --file examples/ironkeeper.json --json > out/report.json
+          check-jsonschema --schemafile schemas/v1/report.schema.json out/report.json
+          ./build/ironkeeper version --json > out/version.json
+          check-jsonschema --schemafile schemas/v1/version.schema.json out/version.json
+
+      - name: Release-mode compilation
+        run: |
+          set -euo pipefail
+          rm -f build/ironkeeper
+          nimble build
+          ./build/ironkeeper --version
+
+      - name: Record the executable identity
+        run: |
+          set -euo pipefail
+          {
+            echo "file: $(file build/ironkeeper)"
+            echo "sha256: $(sha256sum build/ironkeeper | cut -d' ' -f1)"
+            echo "size: $(stat -c %s build/ironkeeper)"
+          } | tee executable-identity.txt
+          cat executable-identity.txt
+
+      - name: Upload the build evidence
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: build-evidence-${{ matrix.architecture }}
+          path: |
+            build/ironkeeper
+            environment.txt
+            executable-identity.txt
+            nimble-dump.json
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------
+  # Secret scanning. Runs against the whole history, not just the tip.
+  # ---------------------------------------------------------------------
+  secret-scan:
+    name: secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Scan the history for secrets
+        uses: gitleaks/gitleaks-action@b32c793809d7b5bb587b8d2412648bd8b4a1c8f5b # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
