@@ -197,7 +197,24 @@ jobs:
           exit 1
 
       - name: Verify the embedded schemas match the repository
-        run: nim r --hints:off tools/embed_schemas.nim --check
+        id: schemacheck
+        continue-on-error: true
+        run: |
+          set +e
+          nim r --hints:off tools/embed_schemas.nim --check > schemacheck.txt 2>&1
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          cat schemacheck.txt
+
+      - name: Report a schema drift failure
+        if: steps.schemacheck.outcome == 'failure'
+        run: |
+          {
+            echo '### Schema embedding drift'
+            echo '```'
+            cat schemacheck.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Independent schema validation
         run: |

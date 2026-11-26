@@ -124,6 +124,22 @@ proc schemaNode*(name: string): JsonNode =
       die("output file does not exist: " & outputFile())
     let current = readFile(outputFile())
     if current != body:
+      # Report where the difference is, so that a drift is diagnosable
+      # without a diff tool.
+      let currentLines = current.splitLines()
+      let expectedLines = body.splitLines()
+      var reported = 0
+      for i in 0 ..< max(currentLines.len, expectedLines.len):
+        let a = if i < currentLines.len: currentLines[i] else: "<missing>"
+        let b = if i < expectedLines.len: expectedLines[i] else: "<missing>"
+        if a != b:
+          die("embedded schemas are out of date at line " & $(i + 1) &
+            "; run: nim r tools/embed_schemas.nim\n" &
+            "  current:  " & a & "\n" &
+            "  expected: " & b)
+        inc reported
+        if reported > 100000:
+          break
       die("embedded schemas are out of date; run: nim r tools/embed_schemas.nim")
     echo "embed_schemas: OK (" & $names.len & " schemas, no drift)"
   else:
