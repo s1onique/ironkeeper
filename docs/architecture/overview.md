@@ -423,9 +423,33 @@ performs its own validation with the bundled validator.
 |---|---|---|---|---|
 | `jschema` | 0.1.0 | MIT | Only qualified Draft 2020-12 validator for Nim | Runtime schema validation |
 | Nim standard library | 2.4.2 | MIT | Everything else | JSON, CLI, filesystem, process |
+| `libpcre3` (shared library) | 3.x | BSD-3-Clause | PCRE runtime for `std/re`, which the validator uses for `pattern` | Regex evaluation in schema validation |
 
-There are no other runtime dependencies. `jschema` itself depends only on
-the Nim standard library (it uses `std/re` for `pattern`).
+There are no other dependencies.
+
+### The PCRE runtime dependency
+
+`jschema` implements the JSON Schema `pattern` keyword with `std/re`,
+which is a binding to PCRE. On Linux, Nim's `std/re` loads
+`libpcre.so.3` (or `libpcre.so.1`) **dynamically at run time**; the Nim
+distribution does not bundle the library and the binding is not linked
+statically.
+
+This makes `libpcre3` a genuine runtime dependency of the Ironkeeper
+binary on Linux, and it must be installed on the host:
+
+```sh
+apt-get install -y libpcre3
+```
+
+It is declared here rather than discovered by accident, and the CI
+workflow installs it explicitly and asserts its presence with
+`ldconfig -p | grep -i pcre` before the build runs.
+
+A deployment that does not install `libpcre3` will build successfully and
+then fail when a schema uses `pattern`. That is a packaging defect, not a
+runtime one, and it is why the dependency is stated here and checked in
+CI rather than left to chance.
 
 Dependency locking: `ironkeeper.nimble` pins `jschema == 0.1.0` exactly.
 Nimble's own lock file (`nimble.lock`) is committed when a dependency is
