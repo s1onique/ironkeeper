@@ -3,6 +3,9 @@
 /nimcache/
 *.exe
 
+# Generated validation output from the CI cross-check
+/out/
+
 # Nimble
 /nimble.paths
 /nimblecache/
