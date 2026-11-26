@@ -233,14 +233,38 @@ jobs:
             examples/ironkeeper.json
 
       - name: Cross-check the generated machine-readable output
+        id: crosscheck
+        continue-on-error: true
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p out
           ./build/ironkeeper config validate \
             --file examples/ironkeeper.json --json > out/report.json
-          check-jsonschema --schemafile schemas/v1/report.schema.json out/report.json
           ./build/ironkeeper version --json > out/version.json
-          check-jsonschema --schemafile schemas/v1/version.schema.json out/version.json
+          {
+            echo '--- report.json ---'
+            cat out/report.json
+            echo '--- version.json ---'
+            cat out/version.json
+            echo '--- validation ---'
+            check-jsonschema --schemafile schemas/v1/report.schema.json out/report.json
+            echo "report rc=$?"
+            check-jsonschema --schemafile schemas/v1/version.schema.json out/version.json
+            echo "version rc=$?"
+          } > crosscheck.txt 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat crosscheck.txt
+
+      - name: Report a cross-check failure
+        if: steps.crosscheck.outcome == 'failure'
+        run: |
+          {
+            echo '### Cross-check output'
+            echo '```'
+            cat crosscheck.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Release-mode compilation
         run: |

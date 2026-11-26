@@ -101,7 +101,11 @@ proc newReportId*(): string =
   ## in the same second do not collide.
   randomize()
   let t = now().utc
-  let suffix = cast[uint32](rand(int.high)) xor cast[uint32](t.nanosecond)
+  # The suffix is derived with explicit arithmetic rather than a cast
+  # between signed and unsigned types, so that the value is well defined
+  # on every architecture and the identifier always has the same shape.
+  let entropy = rand(int.high) and 0x0FFFFFFF'i64
+  let suffix = uint32(entropy) xor uint32(t.nanosecond and 0xFF)
   t.format("yyyyMMdd'T'HHmmss") & "-" & toHex(suffix, 8)
 
 proc newFinding*(code: string, severity: FindingSeverity, message: string,
