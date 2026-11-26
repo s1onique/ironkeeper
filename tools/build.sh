@@ -17,7 +17,11 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 
 NIM=${NIM:-nim}
-DEPS_PATH=${IRK_DEPS_PATH:-}
+# The dependency path is taken from the environment when it is set, and
+# otherwise from the default Nimble location that the dependency-resolution
+# step installs into. Deriving it here means the build does not depend on
+# the caller having exported an environment variable.
+DEPS_PATH=${IRK_DEPS_PATH:-$HOME/.nimble/pkgs2/jschema-0.1.0/src}
 
 # The test harness lives in tests/unit and is shared by every layer.
 PATHS="--path:$ROOT/src --path:$ROOT/tests/unit --path:$ROOT/tests/contract --path:$ROOT/tests/integration"

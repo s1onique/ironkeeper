@@ -149,6 +149,12 @@ jobs:
             "$HOME/.nimble/pkgs2/jschema-0.1.0/jschema.nimble"
           printf '%s\n' 'requires "jschema == 0.1.0"' \
             > "$HOME/.nimble/pkgs2/jschema-0.1.0/nimble.paths"
+          # The dependency path is exported so that every later step
+          # resolves the same dependency. The gate and build scripts also
+          # derive the default location themselves, so the build does not
+          # depend on this export.
+          echo "IRK_DEPS_PATH=$HOME/.nimble/pkgs2/jschema-0.1.0/src" \
+            >> "$GITHUB_ENV"
           {
             echo "dependency: jschema"
             echo "commit: ${JSCHEMA_COMMIT}"

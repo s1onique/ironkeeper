@@ -23,10 +23,17 @@ cd "$ROOT"
 . "$ROOT/tools/gate.sh"
 
 NIM="${NIM:-nim}"
-DEPS_PATH="${IRK_DEPS_PATH:-}"
-PATHS="--path:$ROOT/src --path:$ROOT/tests/unit --path:$ROOT/tests/contract --path:$ROOT/tests/integration"
+# The dependency path is taken from the environment when it is set, and
+# otherwise from the default Nimble location that the dependency-resolution
+# step installs into. Deriving it here means the gate does not depend on
+# the caller having exported an environment variable.
+DEPS_PATH="${IRK_DEPS_PATH:-$HOME/.nimble/pkgs2/jschema-0.1.0/src}"
+
+# The include paths are kept in an array, so that a path containing a space
+# is passed to the compiler as one argument.
+DEPS_ARG=()
 if [ -n "$DEPS_PATH" ]; then
-  PATHS="$PATHS --path:$DEPS_PATH"
+  DEPS_ARG=(--path:"$DEPS_PATH")
 fi
 
 FAILED=()
@@ -45,10 +52,10 @@ record() {
 }
 
 echo "=== type-check ==="
-record typecheck-main nim check --mm:orc --path:src ${DEPS_PATH:+--path:"$DEPS_PATH"} src/ironkeeper.nim
-record typecheck-unit nim check --mm:orc --path:src --path:tests/unit ${DEPS_PATH:+--path:"$DEPS_PATH"} tests/unit/all_unit_tests.nim
-record typecheck-contract nim check --mm:orc --path:src --path:tests/unit --path:tests/contract ${DEPS_PATH:+--path:"$DEPS_PATH"} tests/contract/all_contract_tests.nim
-record typecheck-integration nim check --mm:orc --path:src --path:tests/unit --path:tests/integration ${DEPS_PATH:+--path:"$DEPS_PATH"} tests/integration/all_integration_tests.nim
+record typecheck-main "$NIM" check --mm:orc --path:src "${DEPS_ARG[@]}" src/ironkeeper.nim
+record typecheck-unit "$NIM" check --mm:orc --path:src --path:tests/unit "${DEPS_ARG[@]}" tests/unit/all_unit_tests.nim
+record typecheck-contract "$NIM" check --mm:orc --path:src --path:tests/unit --path:tests/contract "${DEPS_ARG[@]}" tests/contract/all_contract_tests.nim
+record typecheck-integration "$NIM" check --mm:orc --path:src --path:tests/unit --path:tests/integration "${DEPS_ARG[@]}" tests/integration/all_integration_tests.nim
 
 echo "=== build ==="
 record build tools/build.sh
