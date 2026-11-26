@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/version.schema.json",
+  "title": "Ironkeeper version",
+  "description": "Machine-readable version identity of an Ironkeeper build.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "version", "schema_versions"],
+  "properties": {
+    "name": {
+      "description": "Program name.",
+      "type": "string",
+      "const": "ironkeeper"
+    },
+    "version": {
+      "description": "Application version of this build.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "schema_versions": {
+      "description": "Contract schema versions this build implements.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "contract": {
+      "description": "The JSON Schema dialect used by the contracts of this build.",
+      "type": "string",
+      "const": "https://json-schema.org/draft/2020-12/schema"
+    }
+  }
+}

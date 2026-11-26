@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "daemon": {
+    "state_directory": "/var/lib/ironkeeper",
+    "socket_path": "/run/ironkeeper/control.sock"
+  },
+  "safety": {
+    "require_explicit_enrollment": true,
+    "allow_destructive_operations": false,
+    "allow_tests_on_in_use_devices": false
+  }
+}

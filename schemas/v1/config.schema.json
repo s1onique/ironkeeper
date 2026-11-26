@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/config.schema.json",
+  "title": "Ironkeeper configuration",
+  "description": "Strict, versioned configuration document for the Ironkeeper daemon. Every object boundary rejects unknown properties. The safety block is deliberately minimal and its mandatory values are enforced semantically, not only structurally.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "daemon", "safety"],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this configuration contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "daemon": {
+      "description": "Runtime locations used by the daemon.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state_directory", "socket_path"],
+      "properties": {
+        "state_directory": {
+          "description": "Absolute path of the directory holding durable state and evidence.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        },
+        "socket_path": {
+          "description": "Absolute path of the AF_UNIX control socket.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "^/"
+        }
+      }
+    },
+    "safety": {
+      "description": "Safety policy. The values in this block are mandatory and are not configurable away in milestone M0: allow_destructive_operations must be false, require_explicit_enrollment must be true, and allow_tests_on_in_use_devices must be false.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "require_explicit_enrollment",
+        "allow_destructive_operations",
+        "allow_tests_on_in_use_devices"
+      ],
+      "properties": {
+        "require_explicit_enrollment": {
+          "description": "Devices must be explicitly enrolled before any assessment. Must be true.",
+          "type": "boolean"
+        },
+        "allow_destructive_operations": {
+          "description": "Whether destructive operations are permitted. Must be false in milestone M0; the schema accepts only false so that the value cannot be configured away.",
+          "type": "boolean",
+          "const": false
+        },
+        "allow_tests_on_in_use_devices": {
+          "description": "Whether self-tests may be started on devices that are in use. Must be false in milestone M0.",
+          "type": "boolean",
+          "const": false
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/error.schema.json",
+  "title": "Ironkeeper error",
+  "description": "Machine-readable error document. Emitted on stdout only when the caller asked for JSON output; otherwise the same information is rendered as human-readable text on stderr.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "error"],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this error contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "description": "Stable machine-readable error class.",
+          "type": "string",
+          "enum": [
+            "invalid_invocation",
+            "input_unavailable",
+            "invalid_json_syntax",
+            "schema_validation_failed",
+            "semantic_validation_failed",
+            "unsupported_schema_version",
+            "unsupported_operation",
+            "internal_failure"
+          ]
+        },
+        "message": {
+          "description": "Human-readable description of the failure.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "detail": {
+          "description": "Optional secondary information, for example a JSON Pointer or a byte offset.",
+          "type": "string",
+          "maxLength": 4096
+        }
+      }
+    }
+  }
+}

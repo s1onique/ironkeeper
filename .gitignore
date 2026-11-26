@@ -1,0 +1,19 @@
+# Build output
+/build/
+/nimcache/
+*.exe
+
+# Nimble
+/nimble.paths
+/nimblecache/
+
+# Editor and OS noise
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local development state (never commit a running deployment's data)
+/state/
+/var/
