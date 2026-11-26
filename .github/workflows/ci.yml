@@ -52,6 +52,9 @@ jobs:
     name: build and test (${{ matrix.architecture }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -128,6 +131,10 @@ jobs:
           # The same `nim check` invocations that `nimble check` runs.
           # They are spelled out here so that the gate does not depend on
           # Nimble's task runner.
+          #
+          # The output is captured into the job summary so that a failure
+          # can be diagnosed without repository admin rights.
+          set +e
           {
             nim check --mm:orc --path:src --path:"$IRK_DEPS_PATH" src/ironkeeper.nim
             nim check --mm:orc --path:src --path:tests/unit --path:"$IRK_DEPS_PATH" \
@@ -137,14 +144,14 @@ jobs:
             nim check --mm:orc --path:src --path:tests/unit --path:tests/integration \
               --path:"$IRK_DEPS_PATH" tests/integration/all_integration_tests.nim
           } 2>&1 | tee typecheck-output.txt
-        if: failure()
-        run: |
+          status=${PIPESTATUS[0]}
           {
             echo '### Type-check output'
             echo '```'
-            cat typecheck-output.txt 2>/dev/null || echo "(not captured)"
+            cat typecheck-output.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - name: Debug build and unit tests
         run: |
@@ -152,17 +159,21 @@ jobs:
           export IRK_DEPS_PATH="$HOME/.nimble/pkgs2/jschema-0.1.0/src"
           # The output is captured into the job summary so that a failure
           # can be diagnosed without repository admin rights.
+          set +e
           {
             tools/build.sh
             ./build/unit_tests
             ./build/contract_tests
             ./build/integration_tests
           } 2>&1 | tee build-output.txt
+          status=${PIPESTATUS[0]}
           {
+            echo '### Build and test output'
             echo '```'
             cat build-output.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
 
       - name: Verify the embedded schemas match the repository
         run: nim r --hints:off tools/embed_schemas.nim --check
@@ -228,6 +239,9 @@ jobs:
     name: secret scan
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: read
     steps:
@@ -242,6 +256,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          # The repository is public, so the free tier needs no licence key.
+          GITLEAKS_ENABLE_COMMENTS: "false"
 
       - name: Report the scan result
         if: always()
@@ -249,10 +265,12 @@ jobs:
           {
             echo '### Secret scan'
             echo '```'
-            if [ -f gitleaks-report.json ]; then
-              head -c 4000 gitleaks-report.json
-            else
-              echo "(no report file)"
-            fi
+            for f in gitleaks-report.json gitleaks.sarif; do
+              if [ -f "$f" ]; then
+                echo "--- $f ---"
+                head -c 4000 "$f"
+                echo
+              fi
+            done
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
