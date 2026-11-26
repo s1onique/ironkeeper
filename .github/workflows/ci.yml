@@ -33,6 +33,12 @@ env:
   # sha256 of the official linux_x64 distribution, as published at
   # https://nim-lang.org/download/nim-2.4.2-linux_x64.tar.xz.sha256
   NIM_SHA256: "0ee5b16e81852a956d4fddb4aa44b5958c645c992132fa43be45f489573ee325"
+  # The pinned validator. The commit is the exact tree that was qualified
+  # against the official JSON Schema Test Suite; see
+  # docs/architecture/overview.md, "Validator qualification".
+  JSCHEMA_COMMIT: "a936862556f24fde475059c560c1a13f00291457"
+  # sha256 of `git archive` of that commit, which pins the whole tree.
+  JSCHEMA_TREE_SHA256: "323f47f85dba93a0f96bd3ffd6ec964abe2663e260c988596d7a49a0d68573a8"
 
 jobs:
   # ---------------------------------------------------------------------
@@ -88,17 +94,47 @@ jobs:
       - name: Resolve pinned dependencies
         run: |
           set -euo pipefail
-          # jschema is pinned exactly in ironkeeper.nimble. Resolving it
-          # through the package registry records the exact artefact.
-          nimble setup -y
-          nimble develop -y --accept || true
-          nimble dump --json > nimble-dump.json || true
-          # The resolved dependency must be the pinned version.
-          test -d "$HOME/.nimble/pkgs2/jschema-0.1.0"
-          ls -la "$HOME/.nimble/pkgs2"
+          # The single external dependency is fetched at an exact commit
+          # and its tree digest is verified. The digest pins the whole
+          # tree, so a rewritten tag or a changed file is detected.
+          rm -rf "$RUNNER_TEMP/jschema"
+          git clone --quiet https://github.com/Niminem/jschema.git \
+            "$RUNNER_TEMP/jschema"
+          git -C "$RUNNER_TEMP/jschema" checkout --quiet "${JSCHEMA_COMMIT}"
+          actual=$(git -C "$RUNNER_TEMP/jschema" archive HEAD | sha256sum | cut -d" " -f1)
+          echo "jschema tree digest: ${actual}"
+          test "${actual}" = "${JSCHEMA_TREE_SHA256}"
+          # Place it where Nimble expects a developed package.
+          mkdir -p "$HOME/.nimble/pkgs2/jschema-0.1.0"
+          cp -R "$RUNNER_TEMP/jschema/src" "$HOME/.nimble/pkgs2/jschema-0.1.0/src"
+          cp "$RUNNER_TEMP/jschema/LICENSE" "$HOME/.nimble/pkgs2/jschema-0.1.0/"
+          cp "$RUNNER_TEMP/jschema/jschema.nimble" \
+            "$HOME/.nimble/pkgs2/jschema-0.1.0/jschema.nimble"
+          printf '%s\n' 'requires "jschema == 0.1.0"' \
+            > "$HOME/.nimble/pkgs2/jschema-0.1.0/nimble.paths"
+          {
+            echo "dependency: jschema"
+            echo "commit: ${JSCHEMA_COMMIT}"
+            echo "tree_sha256: ${actual}"
+            echo "expected_tree_sha256: ${JSCHEMA_TREE_SHA256}"
+          } > dependency-resolution.txt
+          cat dependency-resolution.txt
+          ls -la "$HOME/.nimble/pkgs2/jschema-0.1.0"
 
       - name: Type-check every module
-        run: nimble check
+        run: |
+          set -euo pipefail
+          export IRK_DEPS_PATH="$HOME/.nimble/pkgs2/jschema-0.1.0/src"
+          # The same `nim check` invocations that `nimble check` runs.
+          # They are spelled out here so that the gate does not depend on
+          # Nimble's task runner.
+          nim check --mm:orc --path:src --path:"$IRK_DEPS_PATH" src/ironkeeper.nim
+          nim check --mm:orc --path:src --path:tests/unit --path:"$IRK_DEPS_PATH" \
+            tests/unit/all_unit_tests.nim
+          nim check --mm:orc --path:src --path:tests/unit --path:tests/contract \
+            --path:"$IRK_DEPS_PATH" tests/contract/all_contract_tests.nim
+          nim check --mm:orc --path:src --path:tests/unit --path:tests/integration \
+            --path:"$IRK_DEPS_PATH" tests/integration/all_integration_tests.nim
 
       - name: Debug build and unit tests
         run: |
@@ -107,10 +143,6 @@ jobs:
           tools/build.sh
           ./build/unit_tests
           ./build/contract_tests
-
-      - name: Compiled CLI integration tests
-        run: |
-          set -euo pipefail
           ./build/integration_tests
 
       - name: Verify the embedded schemas match the repository
@@ -141,8 +173,10 @@ jobs:
       - name: Release-mode compilation
         run: |
           set -euo pipefail
+          export IRK_DEPS_PATH="$HOME/.nimble/pkgs2/jschema-0.1.0/src"
           rm -f build/ironkeeper
-          nimble build
+          # The release build is the same one `nimble build` drives.
+          tools/build.sh
           ./build/ironkeeper --version
 
       - name: Record the executable identity
@@ -164,7 +198,7 @@ jobs:
             build/ironkeeper
             environment.txt
             executable-identity.txt
-            nimble-dump.json
+            dependency-resolution.txt
           retention-days: 7
           if-no-files-found: ignore
 
@@ -185,7 +219,7 @@ jobs:
           fetch-depth: 0
 
       - name: Scan the history for secrets
-        uses: gitleaks/gitleaks-action@b32c793809d7b5bb587b8d2412648bd8b4a1c8f5b # v2.3.9
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"

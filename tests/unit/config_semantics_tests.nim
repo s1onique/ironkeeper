@@ -23,11 +23,6 @@ const BaseConfig = """{
   }
 }"""
 
-proc withSafety(key: string, literal: string): JsonNode =
-  ## Return the base configuration with one safety value replaced.
-  parseJson(BaseConfig.replace("\"allow_destructive_operations\": false",
-                                "\"allow_destructive_operations\": " & literal))
-
 proc runSuite*(): int =
   var t = newTestSuite("config-semantics")
 

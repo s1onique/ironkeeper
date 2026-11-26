@@ -19,6 +19,7 @@ cd "$ROOT"
 NIM=${NIM:-nim}
 DEPS_PATH=${IRK_DEPS_PATH:-}
 
+# The test harness lives in tests/unit and is shared by every layer.
 PATHS="--path:$ROOT/src --path:$ROOT/tests/unit --path:$ROOT/tests/contract --path:$ROOT/tests/integration"
 if [ -n "$DEPS_PATH" ]; then
   PATHS="$PATHS --path:$DEPS_PATH"
@@ -34,6 +35,9 @@ build_one() {
   $NIM c $COMMON ${3:-} -o:"$2" "$1"
 }
 
+# The application is built in release mode with the ORC memory manager.
+# The test binaries are built in the default mode, so that assertions and
+# stack traces remain available when a test fails.
 build_one src/ironkeeper.nim build/ironkeeper "-d:release --opt:speed"
 build_one tests/unit/all_unit_tests.nim build/unit_tests
 build_one tests/contract/all_contract_tests.nim build/contract_tests
