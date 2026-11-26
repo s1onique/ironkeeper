@@ -128,22 +128,41 @@ jobs:
           # The same `nim check` invocations that `nimble check` runs.
           # They are spelled out here so that the gate does not depend on
           # Nimble's task runner.
-          nim check --mm:orc --path:src --path:"$IRK_DEPS_PATH" src/ironkeeper.nim
-          nim check --mm:orc --path:src --path:tests/unit --path:"$IRK_DEPS_PATH" \
-            tests/unit/all_unit_tests.nim
-          nim check --mm:orc --path:src --path:tests/unit --path:tests/contract \
-            --path:"$IRK_DEPS_PATH" tests/contract/all_contract_tests.nim
-          nim check --mm:orc --path:src --path:tests/unit --path:tests/integration \
-            --path:"$IRK_DEPS_PATH" tests/integration/all_integration_tests.nim
+          {
+            nim check --mm:orc --path:src --path:"$IRK_DEPS_PATH" src/ironkeeper.nim
+            nim check --mm:orc --path:src --path:tests/unit --path:"$IRK_DEPS_PATH" \
+              tests/unit/all_unit_tests.nim
+            nim check --mm:orc --path:src --path:tests/unit --path:tests/contract \
+              --path:"$IRK_DEPS_PATH" tests/contract/all_contract_tests.nim
+            nim check --mm:orc --path:src --path:tests/unit --path:tests/integration \
+              --path:"$IRK_DEPS_PATH" tests/integration/all_integration_tests.nim
+          } 2>&1 | tee typecheck-output.txt
+        if: failure()
+        run: |
+          {
+            echo '### Type-check output'
+            echo '```'
+            cat typecheck-output.txt 2>/dev/null || echo "(not captured)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Debug build and unit tests
         run: |
           set -euo pipefail
           export IRK_DEPS_PATH="$HOME/.nimble/pkgs2/jschema-0.1.0/src"
-          tools/build.sh
-          ./build/unit_tests
-          ./build/contract_tests
-          ./build/integration_tests
+          # The output is captured into the job summary so that a failure
+          # can be diagnosed without repository admin rights.
+          {
+            tools/build.sh
+            ./build/unit_tests
+            ./build/contract_tests
+            ./build/integration_tests
+          } 2>&1 | tee build-output.txt
+          {
+            echo '```'
+            cat build-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify the embedded schemas match the repository
         run: nim r --hints:off tools/embed_schemas.nim --check
@@ -223,3 +242,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
+      - name: Report the scan result
+        if: always()
+        run: |
+          {
+            echo '### Secret scan'
+            echo '```'
+            if [ -f gitleaks-report.json ]; then
+              head -c 4000 gitleaks-report.json
+            else
+              echo "(no report file)"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
