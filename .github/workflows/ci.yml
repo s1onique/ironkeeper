@@ -219,8 +219,20 @@ jobs:
       - name: Independent schema validation
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet --disable-pip-version-check \
-            "check-jsonschema==0.31.2"
+          # The validator is installed into a dedicated virtual
+          # environment, and that environment's bin directory is put on
+          # PATH explicitly. Installing it with a bare `pip install`
+          # places the console script in a location that is not on PATH
+          # on every runner image, which produced a "command not found"
+          # failure on the arm64 runner.
+          python3 -m venv "$RUNNER_TEMP/validator-venv"
+          "$RUNNER_TEMP/validator-venv/bin/pip" install --quiet \
+            --disable-pip-version-check "check-jsonschema==0.31.2"
+          echo "$RUNNER_TEMP/validator-venv/bin" >> "$GITHUB_PATH"
+          # The PATH addition applies to later steps, so the tool is also
+          # selected explicitly here.
+          export PATH="$RUNNER_TEMP/validator-venv/bin:$PATH"
+          check-jsonschema --version
           # Every repository schema must itself be a valid Draft 2020-12
           # schema. `--check-metaschema` validates the schema against the
           # metaschema; validating a schema against itself would be
@@ -237,6 +249,8 @@ jobs:
         continue-on-error: true
         run: |
           set -uo pipefail
+          export PATH="$RUNNER_TEMP/validator-venv/bin:$PATH"
+          command -v check-jsonschema
           mkdir -p out
           ./build/ironkeeper config validate \
             --file examples/ironkeeper.json --json > out/report.json
