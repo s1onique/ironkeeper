@@ -84,6 +84,27 @@ the offline package set and the guest driver scripts. The tooling that
 was written for it was removed from the repository in commit
 `0f469d13`.
 
+### Process cleanup
+
+Three processes were created by the guest attempt and were positively
+identified by their command lines:
+
+| Process | Disposition |
+|---|---|
+| the guest driver script | terminated |
+| the QEMU instance started by that driver | terminated |
+| a second, earlier QEMU instance | terminated |
+
+A further orphaned QEMU instance from an earlier attempt could not be
+signalled: the sandbox denies `kill` to processes that were started by
+a previous tool invocation, and the process had already been re-parented
+to init. It was left in place rather than fought with, and the guest
+image it depended on was deleted, so it cannot perform any further
+work. It consumes no CPU while idle.
+
+The remaining temporary state is the pinned toolchain and the compiler
+caches, which are build inputs rather than virtualization artefacts.
+
 ## The development workstation
 
 macOS is used for source editing, portable compilation, portable unit and

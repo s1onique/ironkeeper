@@ -67,6 +67,31 @@ Both build jobs ran, natively and on the exact subject commit:
 The secret-scan job ran the pinned gitleaks binary over the whole
 history.
 
+## The run on the final head
+
+The evidence commit changes no executable content, and the workflow was
+run again on it to confirm that:
+
+| Field | Value |
+|---|---|
+| Run ID | **45907640271** |
+| Attempt | 1 |
+| Head SHA | `a8372fa8005063c9c880d8f0323ef0e36a88e61f` |
+| Branch | `act/ironkeeper-foundation-01` |
+| Conclusion | **success** |
+
+| Job | Runner | Conclusion |
+|---|---|---|
+| `build and test (amd64)` | GitHub Actions 1000018924 | success |
+| `build and test (arm64)` | GitHub Actions 1000018922 | success |
+| `secret scan` | GitHub Actions 1000018923 | success |
+
+The difference between the qualified subject `886a7d20` and the final
+head `a8372fa8` is confined to the evidence bundle, the epic board and
+the README. No code, test, schema, dependency, build configuration or
+workflow definition changes, so the qualification of the subject remains
+valid, and the final head is independently qualified as well.
+
 ## The run history, and what each failure taught
 
 The first six runs failed. Every failure was a real defect in the

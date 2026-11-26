@@ -42,7 +42,11 @@ hidden.
 | `ENTRY_HEAD` | `c649d1aef3b80f37475c49f67efc3a4be72fadf1` |
 | `SUBJECT_HEAD` | `886a7d20a33e3f8a4c666b550a74872cf0b1a800` |
 | `CI_HEAD` | `886a7d20a33e3f8a4c666b550a74872cf0b1a800` |
-| `FINAL_HEAD` | the commit that adds this evidence bundle |
+| `FINAL_HEAD` | `a8372fa8005063c9c880d8f0323ef0e36a88e61f` |
+
+The final head was qualified independently: CI run **45907640271**
+concluded **success** with all three jobs successful, natively on Linux
+amd64 and arm64.
 
 `CI_HEAD` equals `SUBJECT_HEAD`: the qualifying run executed exactly
 the qualified commit.
