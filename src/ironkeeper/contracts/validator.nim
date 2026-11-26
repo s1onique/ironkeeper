@@ -38,6 +38,7 @@ import std/[json, strutils]
 
 import jschema
 
+from ironkeeper/contracts/schemapolicy import checkSchemaPolicy, MetaschemaUri
 
 const
   Draft2020_12* = "https://json-schema.org/draft/2020-12/schema"
@@ -81,18 +82,21 @@ proc draftOf(schema: JsonNode): string =
   ""
 
 proc collectExternalRefs(schema: JsonNode, prefix = ""): seq[string] =
-  ## Collect every `$ref` in `schema` that is not a local JSON Pointer and
-  ## not the bundled Draft 2020-12 metaschema.
+  ## Collect every reference in `schema` that is not a local JSON Pointer
+  ## and not the bundled Draft 2020-12 metaschema.
   ##
   ## Only `#`-prefixed pointers are considered local. The metaschema URI is
   ## allowed because it is bundled in the registry and resolved entirely
   ## offline; it is the only absolute reference Ironkeeper permits.
   ## Everything else is prohibited, because resolving it would require a
   ## network fetch.
+  ##
+  ## `$dynamicRef` is collected as well: it is a reference construct, and a
+  ## dynamic reference that is not local is prohibited by the same rule.
   if schema.kind == JObject:
     for key, value in schema.pairs:
       let loc = if prefix.len == 0: "/" & key else: prefix & "/" & key
-      if key == "$ref" and value.kind == JString:
+      if (key == "$ref" or key == "$dynamicRef") and value.kind == JString:
         let target = value.getStr
         if not target.startsWith("#") and target != MetaschemaRef:
           result.add target
@@ -120,10 +124,24 @@ proc metaValidate(v: Validator, schema: JsonNode): ValidationOutcome =
 proc validateAgainst*(v: Validator, data, schema: JsonNode): ValidationOutcome =
   ## Validate `data` against `schema` under Ironkeeper's fail-closed rules.
   ##
-  ## Returns an outcome whose `ok` field is true only when the data satisfies
-  ## the schema *and* the schema itself is a well-formed Draft 2020-12
-  ## schema. `error` is set when an internal defect occurred; in that case
-  ## the outcome must be treated as a failure.
+  ## The schema passes three gates before it is used to validate data:
+  ##
+  ##   1. **meta-validation** against the bundled Draft 2020-12 metaschema;
+  ##   2. the **supported schema policy**: every keyword in a
+  ##      schema-bearing position must be one Ironkeeper supports, and no
+  ##      prohibited construct may appear;
+  ##   3. the **reference policy**: every reference must be a local JSON
+  ##      Pointer or the bundled metaschema URI.
+  ##
+  ## Gate 2 is not implied by gate 1. A misspelled keyword is a valid
+  ## Draft 2020-12 schema, so meta-validation accepts it and the keyword's
+  ## *intent* - a closed object boundary, a numeric bound - is silently
+  ## lost. The policy gate rejects it instead.
+  ##
+  ## Returns an outcome whose `ok` field is true only when the data
+  ## satisfies the schema *and* the schema itself is well-formed and inside
+  ## the supported subset. `error` is set when an internal defect occurred;
+  ## in that case the outcome must be treated as a failure.
   let dialect = draftOf(schema)
   if dialect.len > 0 and dialect != Draft2020_12:
     return ValidationOutcome(
@@ -131,16 +149,36 @@ proc validateAgainst*(v: Validator, data, schema: JsonNode): ValidationOutcome =
       error: newException(ValueError,
         "unsupported JSON Schema dialect: " & dialect))
 
+  # Meta-validation first: a schema that is not a valid Draft 2020-12
+  # schema is refused as an ordinary validation failure, before the
+  # supported-policy gate and before evaluation. This is what neutralises
+  # the upstream defect: the Draft 4 boolean form of `exclusiveMaximum`
+  # is not a valid 2020-12 schema, so it never reaches the evaluator.
+  let meta = metaValidate(v, schema)
+  if not meta.ok:
+    return ValidationOutcome(ok: false, issues: meta.issues)
+
+  # The supported schema policy. A schema outside the policy is a defect
+  # in the schema, not an invalid instance, so it is reported as an
+  # internal failure rather than as a list of instance issues.
+  let policy = checkSchemaPolicy(schema)
+  if not policy.ok:
+    var parts = ""
+    for issue in policy.issues:
+      if parts.len > 0:
+        parts.add "; "
+      parts.add issue.location & ": " & issue.message
+    return ValidationOutcome(
+      ok: false,
+      error: newException(ValueError,
+        "the schema is outside the supported schema policy: " & parts))
+
   let externalRefs = collectExternalRefs(schema)
   if externalRefs.len > 0:
     return ValidationOutcome(
       ok: false,
       error: newException(ValueError,
         "external schema reference is not permitted: " & externalRefs[0]))
-
-  let meta = metaValidate(v, schema)
-  if not meta.ok:
-    return ValidationOutcome(ok: false, issues: meta.issues)
 
   try:
     let res = validate(data, schema, v.registry)

@@ -177,5 +177,60 @@ proc runSuite*(): int =
       t.check("the repository example satisfies the configuration schema",
         v.validateAgainst(example.node, configSchema).ok)
 
+  # --- Every machine-readable output has an authoritative schema -----------
+  # Each public output document must be covered by a schema that this
+  # build implements. The list below names the command and the contract
+  # that governs its output.
+  const OutputContracts = [
+    ("version --json", "version"),
+    ("schema list --json", "schemaindex"),
+    ("report validate --json", "validation"),
+    ("config validate --json", "report"),
+    ("a classified failure", "error"),
+  ]
+  for (label, contract) in OutputContracts:
+    t.check("the output of " & label & " has a schema (" & contract & ")",
+      contract in EmbeddedSchemaNames)
+
+  # The validation result document must accept the shape the CLI emits.
+  let validationSchema = parseJson(schemaText("validation"))
+  let validResult = """{"schema_version":1,"valid":true,"structural_valid":true,"semantic_valid":true,"issues":[]}"""
+  t.check("the validation result document satisfies its contract",
+    v.validateAgainst(parseJson(validResult), validationSchema).ok)
+  let invalidResult = """{"schema_version":1,"valid":false,"structural_valid":true,"semantic_valid":false,"issues":[{"location":"/a","keyword_location":"","message":"m"}]}"""
+  t.check("an invalid validation result satisfies its contract",
+    v.validateAgainst(parseJson(invalidResult), validationSchema).ok)
+
+  # The schema index document must accept the shape the CLI emits.
+  let indexSchema = parseJson(schemaText("schemaindex"))
+  let indexDoc = """{"schema_version":1,"schemas":[{"name":"config","version":1,"dialect":"https://json-schema.org/draft/2020-12/schema"}]}"""
+  t.check("the schema index document satisfies its contract",
+    v.validateAgainst(parseJson(indexDoc), indexSchema).ok)
+
+  # The error document must accept the shape the CLI emits.
+  let errorSchema = parseJson(schemaText("error"))
+  let errorDoc = """{"schema_version":1,"error":{"code":"invalid_invocation","message":"m"}}"""
+  t.check("the error document satisfies its contract",
+    v.validateAgainst(parseJson(errorDoc), errorSchema).ok)
+
+  # An oversized diagnostic must not make the document violate its own
+  # contract: the message field is bounded, and a message longer than the
+  # bound must be rejected rather than silently emitted.
+  let oversizedError = """{"schema_version":1,"error":{"code":"invalid_invocation","message":"""" &
+    "x".repeat(5000) & """"}}"""
+  t.check("an oversized error message does not satisfy the error contract",
+    not v.validateAgainst(parseJson(oversizedError), errorSchema).ok)
+
+  # The same holds for the validation result: a large finding set must
+  # not produce a document that violates the output contract.
+  var manyIssues = """{"schema_version":1,"valid":false,"issues":["""
+  for i in 0 ..< 2000:
+    if i > 0:
+      manyIssues.add ","
+    manyIssues.add """{"message":"m"}"""
+  manyIssues.add "]}"
+  t.check("a large finding set does not satisfy the validation contract",
+    not v.validateAgainst(parseJson(manyIssues), validationSchema).ok)
+
   t.finish()
 

@@ -32,6 +32,10 @@ type
 const
   SupportedConfigSchemaVersion* = 1
     ## The only configuration schema version this build implements.
+    ##
+    ## The CLI reports a document that declares a different version with
+    ## the documented `unsupported_schema_version` classification, so this
+    ## check is a second line of defence rather than the only one.
 
 proc issue(code, msg, loc: string): SemanticIssue =
   SemanticIssue(code: code, message: msg, location: loc)

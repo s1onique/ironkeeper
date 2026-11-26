@@ -225,6 +225,95 @@ proc runSuite*(): int =
   r = runBinary(@["report", "validate", "--file", "examples/ironkeeper.json"])
   t.check("report validate rejects a configuration document", r.exitCode != 0)
 
+  # --- Report semantics -------------------------------------------------------
+  # A timestamp must denote a real calendar time, not merely match a
+  # regular expression. The structural layer accepts `2026-02-30`; the
+  # semantic layer must not.
+  let semTmp = getTempDir() / "ironkeeper-report-semantics"
+  createDir(semTmp)
+
+  proc writeReport(name, timestamp, state, verdict: string): string =
+    ## Write a minimal but well-formed report document.
+    let path = semTmp / name
+    var text = "{\n"
+    text.add "  \"schema_version\": 1,\n"
+    text.add "  \"report_type\": \"configuration_validation\",\n"
+    text.add "  \"report_id\": {\"id\": \"r1\", \"created_at\": \"" & timestamp & "\"},\n"
+    text.add "  \"producer\": {\"name\": \"ironkeeper\", \"version\": \"0.1.0\"},\n"
+    text.add "  \"execution\": {\"state\": \"" & state & "\", " &
+      "\"started_at\": \"" & timestamp & "\", " &
+      "\"finished_at\": \"" & timestamp & "\"},\n"
+    if verdict.len > 0:
+      text.add "  \"assessment\": {\"verdict\": \"" & verdict &
+        "\", \"summary\": \"checked\"},\n"
+    text.add "  \"findings\": []\n}\n"
+    writeFile(path, text)
+    path
+
+  for (label, timestamp) in [
+      ("an impossible month", "2026-13-02T03:04:05Z"),
+      ("an impossible day", "2026-02-30T03:04:05Z"),
+      ("an impossible hour", "2026-01-02T25:04:05Z"),
+      ("an impossible minute", "2026-01-02T03:61:05Z"),
+      ("an impossible second", "2026-01-02T03:04:61Z"),
+      ("a non-leap February 29", "2026-02-29T00:00:00Z"),
+      ("an invalid offset", "2026-01-02T03:04:05+25:00")]:
+    let path = writeReport("bad-time.json", timestamp, "SUCCEEDED", "")
+    r = runBinary(@["report", "validate", "--file", path, "--json"])
+    t.check("report validate rejects " & label, r.exitCode != 0)
+    t.check("report validate reports " & label & " as a semantic failure",
+      r.exitCode == 6)
+
+  for (label, timestamp) in [
+      ("a leap day", "2024-02-29T00:00:00Z"),
+      ("a UTC timestamp", "2026-01-02T03:04:05Z"),
+      ("a UTC timestamp with a fraction", "2026-01-02T03:04:05.123456Z"),
+      ("a positive offset", "2026-01-02T03:04:05+14:00"),
+      ("a negative offset", "2026-01-02T03:04:05-12:00")]:
+    let path = writeReport("good-time.json", timestamp, "SUCCEEDED", "")
+    r = runBinary(@["report", "validate", "--file", path, "--json"])
+    t.check("report validate accepts " & label, r.exitCode == 0)
+
+  # A failed execution must not carry a PASS assessment.
+  let failedPath = writeReport("failed-pass.json",
+    "2026-01-02T03:04:05Z", "FAILED", "PASS")
+  r = runBinary(@["report", "validate", "--file", failedPath, "--json"])
+  t.check("report validate rejects a PASS verdict on a failed execution",
+    r.exitCode != 0)
+  t.check("report validate reports it as a semantic failure", r.exitCode == 6)
+  t.checkContains("the reason is named", r.stdoutText, "PASS assessment")
+
+  # An unsupported schema version has its own documented classification.
+  let versionPath = semTmp / "bad-version.json"
+  writeFile(versionPath, """{"schema_version": 99}""")
+  r = runBinary(@["report", "validate", "--file", versionPath, "--json"])
+  t.checkEq("an unsupported schema version exits with the documented status",
+    r.exitCode, 7)
+
+  # --- Bounded ingestion ------------------------------------------------------
+  # An oversized document must be rejected by a bounded reader, without
+  # the whole document being read into memory first.
+  let bigPath = semTmp / "oversized.json"
+  var handle = open(bigPath, fmWrite)
+  handle.write("{\"a\":\"" )
+  let chunk = "x".repeat(64 * 1024)
+  for _ in 0 ..< 80:
+    handle.write(chunk)
+  handle.write("\"}")
+  handle.close()
+  r = runBinary(@["config", "validate", "--file", bigPath, "--json"])
+  t.checkEq("an oversized document exits with the input-unavailable status",
+    r.exitCode, 3)
+  t.checkContains("the oversized document is named", r.stdoutText,
+    "exceeds the maximum size")
+  t.check("the oversized document produces a classified result",
+    r.stdoutText.contains("input_unavailable"))
+
+  # A directory is not a readable document.
+  r = runBinary(@["config", "validate", "--file", semTmp, "--json"])
+  t.checkEq("a directory exits with the input-unavailable status",
+    r.exitCode, 3)
+
   # --- No unexpected files are created ---------------------------------------
   var before: seq[string]
   for f in walkDirRec(getCurrentDir()):

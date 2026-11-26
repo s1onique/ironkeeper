@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/schemaindex.schema.json",
+  "title": "Ironkeeper schema index",
+  "description": "Machine-readable index of the contracts that this build implements. Emitted by `ironkeeper schema list --json`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "schemas"],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this index contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "schemas": {
+      "description": "The contracts this build implements.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "version", "dialect"],
+        "properties": {
+          "name": {
+            "description": "Name of the contract.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "version": {
+            "description": "Version of the contract.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "dialect": {
+            "description": "The JSON Schema dialect the contract is written in.",
+            "type": "string",
+            "const": "https://json-schema.org/draft/2020-12/schema"
+          }
+        }
+      }
+    }
+  }
+}

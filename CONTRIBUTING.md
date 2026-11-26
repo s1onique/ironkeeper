@@ -67,6 +67,12 @@ The JSON Schemas under `schemas/v1/` are the public contracts. They are
 embedded into the binary by a generator, and a contract test asserts that
 the embedded bytes match the repository files.
 
+### Contract compatibility
+
+The JSON Schemas under `schemas/v1/` are the public contracts. They are
+embedded into the binary by a generator, and a contract test asserts that
+the embedded bytes match the repository files.
+
 After editing a schema:
 
 ```sh
@@ -76,10 +82,30 @@ nim r tools/embed_schemas.nim
 `nim r tools/embed_schemas.nim --check` verifies that the embedded copy
 is in sync without writing. CI runs the check.
 
-Adding a field to a published contract is a **compatible** change within
-the same version. Removing a field, narrowing an accepted value or
-changing a required list is **breaking** and requires a new
-`schemas/vN/` directory plus a migration note.
+**Compatibility is defined by producer and consumer behaviour, not by the
+shape of the change.** A change is compatible within a schema version only
+when every existing consumer of the version continues to accept every
+document the new producer can emit.
+
+In practice, for the contracts in this repository:
+
+| Change | Compatible? | Why |
+|---|---|---|
+| Adding an **optional** property to a schema that has `additionalProperties: false` | **No**, not automatically | A strict consumer that was written against the closed schema rejects the new property. The consumer must be updated before the producer may emit it. |
+| Adding a **required** property | **No** | Existing documents stop validating. |
+| Removing a property | **No** | Existing documents that carry it stop validating. |
+| Narrowing an accepted value | **No** | Existing documents stop validating. |
+| Widening an accepted value | Usually yes | Existing documents keep validating, but a consumer that relies on the narrower set must be reviewed. |
+| Relaxing `additionalProperties` | Usually yes | Existing documents keep validating, but the closed-object guarantee is lost; that guarantee may be what a consumer depends on. |
+| Tightening `additionalProperties` | **No** | Existing documents that carry an unknown property stop validating. |
+| Adding an optional property to a schema that does **not** close its object boundary | Usually yes | A consumer that ignores unknown properties keeps working. |
+
+A change that is **not** compatible requires a new `schemas/vN/` directory
+plus a migration note.
+
+Do not introduce a generic schema migration framework to manage this. The
+contracts are small, the number of consumers is small, and the decision
+is made by hand against the table above.
 
 ## Style
 

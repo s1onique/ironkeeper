@@ -138,6 +138,59 @@ proc runSuite*(): int =
   t.check("accepts a value satisfying exactly one branch",
     v.validateAgainst(parseJson("\"a\""), oneOfSchema).ok)
 
+  # --- The supported schema policy ---------------------------------------
+  # Meta-validation alone does not reject an unknown keyword: a
+  # misspelled keyword is a *valid* Draft 2020-12 schema, so the
+  # keyword's intent is silently lost. The supported schema policy
+  # rejects it.
+  let misspelledAdditional = parseJson("""{"type":"object","additionalPropeties":false}""")
+  let misspelledOutcome = v.validateAgainst(parseJson("{}"), misspelledAdditional)
+  t.check("rejects an unknown keyword", not misspelledOutcome.ok)
+  t.check("reports an unknown keyword as a schema defect",
+    misspelledOutcome.error != nil)
+  t.checkContains("names the unsupported keyword",
+    misspelledOutcome.error.msg, "additionalPropeties")
+
+  let misspelledMinimum = parseJson("""{"type":"integer","minimun":10}""")
+  t.check("rejects a misspelled numeric bound keyword",
+    not v.validateAgainst(parseJson("5"), misspelledMinimum).ok)
+
+  let nestedUnknown = parseJson("""{"type":"object","properties":{"a":{"type":"integer","minimumx":5}}}""")
+  t.check("rejects an unknown keyword in a nested schema position",
+    not v.validateAgainst(parseJson("""{"a":1}"""), nestedUnknown).ok)
+
+  # A property *name* that happens to look like a keyword is a name, not a
+  # keyword, and must not be rejected.
+  let keywordAsName = parseJson("""{"type":"object","properties":{"minimun":{"type":"integer"}}}""")
+  t.check("does not treat a property name as a keyword",
+    v.validateAgainst(parseJson("""{"minimun":1}"""), keywordAsName).ok)
+  t.check("still applies the property's own schema",
+    not v.validateAgainst(parseJson("""{"minimun":"x"}"""), keywordAsName).ok)
+
+  # A member of a `const` object is a value, not a keyword.
+  let constObject = parseJson("""{"const":{"minimun":10,"type":"integer"}}""")
+  t.check("does not treat a const object member as a keyword",
+    v.validateAgainst(parseJson("""{"minimun":10,"type":"integer"}"""), constObject).ok)
+
+  # A nested dialect declaration is prohibited.
+  let nestedDialect = parseJson("""{"type":"object","properties":{"a":{"$schema":"https://json-schema.org/draft-07/schema","type":"string"}}}""")
+  t.check("rejects a nested dialect declaration",
+    not v.validateAgainst(parseJson("""{"a":"x"}"""), nestedDialect).ok)
+
+  # A prohibited reference construct is rejected.
+  let dynamicRef = parseJson("""{"$dynamicRef":"#meta"}""")
+  t.check("rejects a dynamic reference",
+    not v.validateAgainst(parseJson("{}"), dynamicRef).ok)
+  let dynamicAnchor = parseJson("""{"$dynamicAnchor":"meta"}""")
+  t.check("rejects a dynamic anchor",
+    not v.validateAgainst(parseJson("{}"), dynamicAnchor).ok)
+
+  # A local reference that cannot be resolved is refused, not silently
+  # ignored.
+  let unresolvable = parseJson("""{"$ref":"#/$defs/missing","$defs":{}}""")
+  t.check("rejects an unresolvable local reference",
+    not v.validateAgainst(parseJson("{}"), unresolvable).ok)
+
   # --- No implicit coercion -------------------------------------------------
   let strictString = parseJson("""{"type":"string"}""")
   t.check("does not coerce a number to a string",

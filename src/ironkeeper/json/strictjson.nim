@@ -17,17 +17,18 @@
 ##   4. No object contains the same member name twice. Two names that are
 ##      equal after JSON string unescaping are the same name, so `"\u0061"`
 ##      and `"a"` collide.
-##   5. No number is non-finite, and no number is written with a magnitude
-##      that would silently lose integer precision when represented as a
-##      binary64.
+##   5. No number is non-finite, and every number is classified *exactly*
+##      from its source text. A value that cannot be represented exactly is
+##      rejected; it is never rounded into the accepted range.
 ##
 ## The result is a `JsonNode` tree whose numbers are exact with respect to
-## the source text: integers that fit in `int64` become `JInt`, everything
-## else becomes `JFloat`. Numbers whose magnitude exceeds 2^53 are rejected
-## outright, because JSON Schema numeric semantics are defined over binary64
-## and Ironkeeper refuses to validate a value it cannot represent exactly.
+## the source text: an integral value that fits in `int64` becomes `JInt`,
+## everything else is rejected. The exact classification lives in
+## `exactnumber.nim`, which documents the numeric policy.
 
-import std/[json, strutils, unicode, tables]
+import std/[json, unicode, tables]
+
+from ironkeeper/json/exactnumber import classifyExact, toInt64, MaxExactIntMagnitude
 
 const
   MaxDocumentBytes* = 4 * 1024 * 1024
@@ -42,15 +43,6 @@ const
     ##
     ## Bounds stack usage of the recursive descent parser and prevents
     ## pathological nesting from being used to exhaust memory.
-
-  MaxExactIntMagnitude* = 9007199254740992'i64
-    ## 2^53. The largest magnitude for which every integer is exactly
-    ## representable as an IEEE-754 binary64.
-    ##
-    ## JSON Schema numeric semantics are defined over binary64. Integers
-    ## beyond this magnitude therefore cannot participate in exact numeric
-    ## comparisons. Ironkeeper refuses to guess: such a value must be carried
-    ## as a decimal *string* in the contract, or be rejected.
 
 type
   StrictJsonError* = object
@@ -260,8 +252,13 @@ proc parseNumber(r: var StrictReader): ParseOutcome =
   ## Parse a JSON number per RFC 8259.
   ##
   ## Rejects the non-standard `NaN`/`Infinity` literals, leading `+`, leading
-  ## zeroes, and a bare `-`. Enforces the exact-integer magnitude bound so
-  ## that no value silently loses precision when represented as binary64.
+  ## zeroes, and a bare `-`.
+  ##
+  ## The value is classified **exactly**, from its source text, by
+  ## `classifyExact`. No binary64 conversion happens before the range
+  ## decision, so a value can never be rounded into the accepted range, a
+  ## noninteger can never become an integer, and a nonzero number can never
+  ## become zero. See `exactnumber.nim` for the policy.
   let start = r.pos
   if peek(r) == '-':
     inc r.pos
@@ -300,32 +297,24 @@ proc parseNumber(r: var StrictReader): ParseOutcome =
     while not atEnd(r) and r.src[r.pos] in {'0'..'9'}:
       inc r.pos
   let lexeme = r.src[start ..< r.pos]
-  if not isFloat:
-    # Exact integer: must fit in int64 and stay within the exact-binary64
-    # range so that numeric comparisons are lossless.
-    try:
-      let v = parseBiggestInt(lexeme)
-      if abs(v) > MaxExactIntMagnitude:
-        r.pos = start
-        return fail(r, "integer magnitude exceeds the exact binary64 range (2^53): " & lexeme)
-      return ParseOutcome(ok: true, node: newJInt(v))
-    except ValueError:
-      r.pos = start
-      return fail(r, "integer does not fit in a 64-bit signed integer: " & lexeme)
-  # Fractional or exponent form.
-  var f: float
-  try:
-    f = parseFloat(lexeme)
-  except ValueError:
+
+  # Exact classification, from the source text.
+  let exact = classifyExact(lexeme)
+  if not exact.ok:
     r.pos = start
-    return fail(r, "invalid number: " & lexeme)
-  if f != f or f in [Inf, -Inf]:
+    return fail(r, exact.error.message)
+  if not exact.isIntegral:
     r.pos = start
-    return fail(r, "non-finite number: " & lexeme)
-  if abs(f) > float(MaxExactIntMagnitude):
-    r.pos = start
-    return fail(r, "number magnitude exceeds the exact binary64 range (2^53): " & lexeme)
-  ParseOutcome(ok: true, node: newJFloat(f))
+    return fail(r, "number is not an integer and cannot be represented " &
+      "exactly: " & lexeme)
+
+  # `isFloat` records how the value was *written*. An integral value that
+  # was written in fraction or exponent notation is accepted and is
+  # represented exactly as an integer, because the exact classification
+  # has already established that it denotes an integer.
+  discard isFloat
+
+  ParseOutcome(ok: true, node: newJInt(exact.toInt64))
 
 proc parseObject(r: var StrictReader): ParseOutcome =
   ## Parse a JSON object, rejecting duplicate member names.

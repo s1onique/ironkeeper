@@ -142,6 +142,13 @@ All public documents are JSON Schema Draft 2020-12 and live in
 | Report | `schemas/v1/report.schema.json` | The foundation report type |
 | Error | `schemas/v1/error.schema.json` | Machine-readable failures |
 | Version | `schemas/v1/version.schema.json` | Build identity |
+| Validation result | `schemas/v1/validation.schema.json` | The `report validate --json` result |
+| Schema index | `schemas/v1/schemaindex.schema.json` | The `schema list --json` result |
+
+Every machine-readable output of the CLI is covered by one of these
+contracts. The contract test suite asserts that each output document
+satisfies its schema, and that an oversized diagnostic or a large
+finding set cannot produce a document that violates the output contract.
 
 ### Contract invariants
 
@@ -167,12 +174,91 @@ local JSON Pointer nor the bundled metaschema URI is rejected before
 validation is attempted. There is no code path in Ironkeeper that fetches
 a schema.
 
-### Unsupported schema keywords must not silently become no-ops
+### The supported schema policy
 
-Every schema in the repository is itself meta-validated against the
-Draft 2020-12 metaschema before it is used. A schema that uses a keyword
-in a way the metaschema rejects is refused, rather than being partially
-understood.
+Meta-validation answers a different question from the one Ironkeeper needs.
+It asks "is this a valid Draft 2020-12 schema?". It does **not** ask "is
+this a schema whose keywords Ironkeeper understands?".
+
+The two are easy to confuse, and the confusion is dangerous. A schema
+with a misspelled keyword:
+
+```json
+{"type": "object", "additionalPropeties": false}
+```
+
+is a perfectly valid Draft 2020-12 schema. `additionalPropeties` is not a
+keyword at all, so the metaschema accepts it, and a validator that only
+meta-validates evaluates it happily. The schema then says nothing about
+unknown properties, and the *intent* — a closed object boundary — is
+silently lost. The same holds for `{"type": "integer", "minimun": 10}`:
+`minimun` is not a keyword, so the bound is silently absent.
+
+Ironkeeper therefore enforces an explicit **supported schema policy**, in
+`src/ironkeeper/contracts/schemapolicy.nim`:
+
+* Every keyword in a **schema-bearing position** must be one of the
+  documented `SupportedKeywords`. A keyword that is not in that list is
+  rejected.
+* A **prohibited construct** is rejected outright: a nested `$schema`
+  declaration, `$dynamicRef` and `$dynamicAnchor`.
+* A **reference** must be a local JSON Pointer or the bundled metaschema
+  URI. A reference that cannot be resolved is refused, not ignored.
+
+The schema-bearing positions are the root, the values of `properties`,
+`patternProperties` and `$defs`, the values of `items`,
+`additionalItems`, `contains`, `propertyNames`, `not`, `if`, `then` and
+`else`, and the elements of `allOf`, `anyOf`, `oneOf` and `prefixItems`.
+
+A keyword is **not** a keyword when it is a *property name*, a member of a
+`const` object, a member of an `examples` array, or a `default` value.
+Those are values, not schemas, and their member names are never treated
+as keywords. `{"properties": {"minimun": {"type": "integer"}}}` names a
+property called `minimun`, and it is accepted.
+
+A schema outside the policy is a defect **in the schema**, not an invalid
+instance. It is therefore reported as an internal failure with the
+documented `internal_failure` classification, never as an ordinary
+instance issue.
+
+The exception boundary is stated honestly: the policy check is a pure
+function over a parsed document. It performs no I/O, resolves no
+reference, and evaluates no schema. Catching an exception does **not**
+contain a native process crash, a segmentation fault or resource
+exhaustion in the upstream library; the fail-closed meta-validation gate
+and the supported policy exist precisely so that such a case is never
+reached.
+
+### Report semantics are a separate layer
+
+A report that satisfies its schema may still be nonsense. The schema can
+only match a timestamp against a regular expression; it cannot know that
+`2026-02-30` is not a date.
+
+`src/ironkeeper/contracts/reportsemantics.nim` establishes the rules the
+schema cannot express:
+
+* a timestamp must denote a real calendar time — the month must be 1..12,
+  the day must exist in that month (so 29 February exists only in a leap
+  year), the hour must be 0..23, the minute and second 0..59, and the
+  offset hour 0..23 with the offset minute 0..59;
+* the execution state and the assessment verdict must agree: a `FAILED`,
+  `CANCELLED`, `INTERRUPTED` or incomplete execution must not carry a
+  `PASS` assessment. Such a report must carry `INCONCLUSIVE`.
+
+Three concerns are kept distinct, and the distinction is visible in the
+machine-readable output:
+
+| Concern | Question | Field |
+|---|---|---|
+| Structural validity | does the document have the right shape? | `structural_valid` |
+| Semantic validity | does the document mean something coherent? | `semantic_valid` |
+| Evidence authenticity | is the cited evidence real? | **not answered** |
+
+`ironkeeper report validate` reports on the **document**. It does not
+verify that the evidence a report cites is authentic, and it never claims
+to. A structurally and semantically valid report is a well-formed claim;
+it is not proof.
 
 ## Strict JSON ingestion
 
@@ -195,45 +281,99 @@ use `std/json` at all, so there is no permissive fallback underneath it.
 
 ## Numeric representation
 
-JSON Schema numeric semantics are defined over IEEE-754 binary64. Values
-that exceed the exactly representable integer range therefore cannot
-participate in exact numeric comparison.
+JSON Schema numeric semantics are defined over IEEE-754 binary64. Binary64
+cannot represent every decimal exactly, so a contract that accepts a
+number must decide, explicitly, what it accepts and what it refuses.
 
-**Rule.** Ironkeeper represents numbers as follows:
+### The defect this rule prevents
 
-* An integer literal whose magnitude is at most 2^53 is represented
-  exactly and is validated exactly.
-* An integer literal whose magnitude exceeds 2^53 is **rejected** by the
-  strict reader, with the message naming the 2^53 bound.
-* A fractional or exponent literal whose magnitude exceeds 2^53 is
-  **rejected** for the same reason.
+The strict reader used to decide the numeric range *after* converting the
+source text to a binary64. That conversion is lossy, and the loss was
+silent:
 
-**Why reject rather than round.** A storage capacity of 16 EiB expressed
-as `17592186044416` is exactly representable, but `17592186044417` is
-not: as a binary64 it rounds to `17592186044416`. Silently accepting it
-would let a report claim a capacity the device does not have. The bound
-is a hard limit precisely so that no such silent corruption is possible.
+| Source text | What the reader produced |
+|---|---|
+| `9007199254740993.0` | `9007199254740992.0` — rounded into the accepted range |
+| `9.007199254740993e15` | `9007199254740992.0` — the same value, same corruption |
+| `1.00000000000000001` | `1.0` — a noninteger became an integer |
+| `1e-400` | `0.0` — a **nonzero** number became zero |
 
-**Future storage reports.** Byte counters that can exceed 2^53 (for
-example lifetime bytes read on a large device) will be carried as
-*decimal strings* in the storage report contract, with an explicit
-`format` marker, and compared with decimal-string arithmetic. That
-convention is a proposal for the storage-report milestone, not an
+Checking the magnitude *after* the conversion cannot repair this: by then
+the information is already gone. The range decision must be made from the
+source text.
+
+The reader also computed `abs(v)` on a parsed `int64`. For the signed
+minimum, `-9223372036854775808`, that expression overflows and raises an
+unhandled `OverflowDefect`, terminating the process.
+
+### The rule
+
+Every JSON number is classified **exactly, from its source text**, by
+`src/ironkeeper/json/exactnumber.nim`. The classification uses decimal
+string arithmetic only; no binary64 conversion happens before the range
+decision.
+
+| Form | Condition | Result |
+|---|---|---|
+| integer | magnitude fits in `int64` | exact `JInt` |
+| integer | magnitude does not fit in `int64` | **rejected** |
+| fraction / exponent | the value is not an integer | **rejected** |
+| fraction / exponent | integral value, magnitude ≤ 2^53 | exact `JInt` |
+| fraction / exponent | integral value, magnitude > 2^53 | **rejected** |
+
+Every mathematically equivalent spelling of the same value is accepted or
+rejected **together**. `100`, `100.0`, `1e2`, `10e1` and `1000e-1` are all
+accepted and all denote 100. `9007199254740993`, `9007199254740993.0`,
+`9.007199254740993e15` and `9007199254740993e0` are all rejected.
+
+### What this rule does not claim
+
+Binary64 does not represent every decimal fraction exactly, and this
+project does not claim that it does. The strict reader never represents a
+fraction at all: a non-integral decimal is *rejected* rather than rounded.
+The accepted value set is therefore a strict subset of what binary64 can
+hold, and every accepted value is exact in binary64.
+
+### Two different policies
+
+The distinction matters, and it is deliberate:
+
+1. **Strict internal Ironkeeper JSON contracts.** This is the policy above.
+   Ironkeeper's own contracts carry small integers: schema versions,
+   severities, counts. A value that cannot be represented exactly is
+   refused.
+2. **External hardware JSON acquisition and lossless normalisation.** A
+   future storage adapter must preserve the *original* telemetry exactly.
+   It therefore does **not** route external numerics through the strict
+   reader. External byte counters that exceed 2^53 are carried as
+   canonical decimal **strings**, with a documented conversion and range
+   semantics, and are compared with decimal-string arithmetic.
+
+A future storage report contract carries large counters as decimal strings
+with an explicit format marker. That convention is a decision, not an
 implemented feature.
 
 ## Resource limits
 
 | Limit | Value | Enforced by |
 |---|---|---|
-| Maximum document size | 4 MiB | strict reader, before parsing |
+| Maximum document size | 4 MiB | bounded reader, *before* an unbounded read |
 | Maximum nesting depth | 64 | strict reader, during parsing |
-| Maximum exact integer magnitude | 2^53 | strict reader, during parsing |
+| Maximum exact integer magnitude | 2^53 | exact number classification, from the source text |
+| Maximum signed 64-bit magnitude | 2^63 | exact number classification, from the source text |
 | Maximum schema `$id` resolution | local only | validator adapter |
 | Maximum findings per report | 1024 | report schema |
 | Maximum evidence records per report | 4096 | report schema |
 
 These limits are part of the public contract. They are documented here so
 that a consumer can predict the outcome of a given input.
+
+The document-size limit is enforced by a *bounded* reader: the input is
+read in chunks and the limit is checked against the number of bytes
+actually read, with one extra byte as the overflow discriminator. The
+reader never materialises an unbounded document in memory, and it refuses
+an input that is not a regular file, so a FIFO or a device node cannot
+block the command.
 
 ## Error taxonomy and exit codes
 
@@ -267,11 +407,11 @@ reported as an internal failure without a trace.
 
 | Component | Version | Notes |
 |---|---|---|
-| Nim compiler | 2.4.2 | Official `linux_x64` distribution |
-| Nimble | 0.20.1 (bundled) | Dependency resolution |
+| Nim compiler | 2.4.2 | Official distribution, per architecture, pinned by sha256 |
+| Nimble | 0.26.2 (bundled) | Dependency resolution |
 | Memory manager | ORC (`--mm:orc`) | Explicit, for reproducible behaviour |
-| C compiler | gcc 13.2.1 (Alpine) | Linux builds |
-| Git | 2.45.4 (Alpine) | |
+| C compiler | gcc 13.x (Ubuntu 24.04) | Linux builds, native runners |
+| Git | 2.43.x (Ubuntu 24.04) | |
 
 The toolchain is pinned by digest rather than by version alone:
 
@@ -331,8 +471,39 @@ cross-compiled artefact is never reported as "executed".
 The CI workflow installs the same pinned, digest-verified Nim
 distribution that the local procedure uses, resolves the same pinned
 dependency, and drives the same repository-owned commands
-(`tools/build.sh` and the three test binaries it produces). There is no
-second implementation of the test suite for CI.
+(`tools/gate_build_test.sh`, `tools/gate_schema_drift.sh`,
+`tools/gate_independent_check.sh` and `tools/gate_secret_scan.sh`).
+There is no second implementation of the test suite for CI.
+
+### The CI gates are fail-closed by construction
+
+The governing invariant is:
+
+> No mandatory command failure may be converted into a successful CI gate
+> by subsequent execution, logging, report generation or artifact
+> collection.
+
+The workflow enforces it structurally, not by convention:
+
+* Every mandatory command runs through `gate_run`, which executes exactly
+  one command and returns *that command's* exit status. Nothing else runs
+  inside it, so there is no later command whose success could overwrite an
+  earlier failure.
+* Each gate keeps the list of failed labels and reports it at the end.
+  The verdict is derived from that list.
+* Diagnostics are collected by a **separate**, explicitly non-mandatory
+  call, under `if: always()`. Diagnostics never influence the verdict.
+* No mandatory step uses `continue-on-error`.
+* A successful artifact upload or a successful log rendering is never a
+  gate success.
+
+`tools/gate_fault_injection.sh` proves the property against the **actual
+production gate scripts**, using controlled failing executables. It
+asserts that every injected fault — a failing type-check followed by a
+success, a failing unit test, a failing independent report validation, a
+failing schema drift check, a scanner that finds a secret, a scanner that
+cannot execute, a scanner that produces no report, a missing scanner — is
+propagated to a nonzero terminal result.
 
 A macOS workstation is used for source editing, portable compilation,
 portable unit and contract tests, static analysis and git operations. A
@@ -354,28 +525,79 @@ and correct. Four candidates were investigated:
 
 ### Measured conformance
 
-`jschema` was evaluated against the official JSON Schema Test Suite, at
-the `legacy` branch revision `245a45a`, draft 2020-12 corpus:
+`jschema` is qualified against the official JSON Schema Test Suite by a
+**repository-owned harness**, `tools/validator_conformance.nim`, driven by
+`tools/qualify_validator.sh`. Every input is pinned, so a result always
+identifies the exact artefacts it was measured against.
+
+| Input | Pin |
+|---|---|
+| Validator | `jschema` at `a936862556f24fde475059c560c1a13f00291457`, tree digest `323f47f8…` verified |
+| Test suite | `JSON-Schema-Test-Suite` at `245a45abc90190c0bff04d97e6d2b541b4bb9f12` (the `legacy` branch) |
+| Draft | Draft 2020-12 |
+| Mandatory corpus | every file directly under `tests/draft2020-12/` |
+| Optional corpus | every file under `tests/draft2020-12/optional/`, classified individually |
+
+The reproducible command is:
+
+```sh
+tools/qualify_validator.sh
+```
+
+It verifies the validator's tree digest and the suite's revision, and
+refuses to run against a different revision. The suite is **not** required
+for routine developer iteration: the project's own test suite does not
+need it. It is required to **requalify**, which is necessary whenever the
+dependency revision, the adapter, the numeric policy or the supported
+keyword set changes.
+
+The harness measures three things separately and reports them separately:
+
+1. **Upstream raw-validator conformance** — the library driven directly,
+   with no Ironkeeper policy in the way.
+2. **Ironkeeper adapter conformance** — the same cases driven through the
+   adapter, which adds the supported schema policy, the reference policy
+   and the meta-validation gate.
+3. **Ironkeeper contract policy** — the cases the adapter rejects
+   *because of the supported schema policy*.
+
+A case the adapter rejects for a reason that is neither the upstream
+defect nor the supported policy is an **unexplained** result. Unexplained
+results are counted, reported individually, and fail the qualification.
+
+#### Results
+
+```
+$ tools/qualify_validator.sh --suite <path>
+validator_commit=a936862556f24fde475059c560c1a13f00291457
+validator_tree_sha256=323f47f85dba93a0f96bd3ffd6ec964abe2663e260c988596d7a49a0d68573a8
+suite_revision=245a45abc90190c0bff04d97e6d2b541b4bb9f12
+draft=2020-12
+mandatory_total=1337
+mandatory_passed=1337
+mandatory_failed=0
+optional_total=1037
+optional_passed=1031
+optional_failed=6
+adapter_policy_rejected=312
+unexplained=0
+```
 
 | Corpus | Total | Passed | Failed |
 |---|---|---|---|
-| Mandatory draft 2020-12 tests | 1300 | 1300 | 0 |
-| Mandatory plus optional | 2374 | 1843 | 531 |
+| Mandatory draft 2020-12 | 1337 | **1337** | **0** |
+| Optional draft 2020-12 | 1037 | 1031 | 6 |
 
-Every failure in the optional corpus is in a directory the specification
-itself marks optional (`optional/format/`, `optional/bignum.json`,
-`optional/ecmascript-regex.json`, `optional/float-overflow.json`,
-`optional/dependencies-compatibility.json`, `optional/cross-draft.json`,
-`optional/format-assertion.json`). The mandatory corpus — the part the
-specification requires an implementation to pass — is complete.
+All six optional failures are in `optional/ecmascript-regex.json`: the
+ECMA-262 regular expression semantics that `std/re` (PCRE) does not
+implement. The specification marks that directory optional.
 
-The keyword coverage required by Ironkeeper's own schemas was checked
-explicitly: object boundaries (`additionalProperties`), required
-properties, unknown properties, integer and boolean types, enumerations,
-constants, numeric bounds, array constraints, local references and
-schema composition (`allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else`).
+The 312 adapter rejections are the supported schema policy at work: the
+adapter deliberately refuses valid generic schemas that fall outside
+Ironkeeper's supported subset. They are classified, not counted as
+unexplained successes or failures.
 
-### The known upstream defect, and the adapter that contains it
+#### The known upstream defect, and the adapter that contains it
 
 `jschema` assumes Draft 2020-12 semantics for `exclusiveMaximum` and
 `exclusiveMinimum`, which are numbers in that draft. Given the Draft 4
@@ -451,10 +673,26 @@ then fail when a schema uses `pattern`. That is a packaging defect, not a
 runtime one, and it is why the dependency is stated here and checked in
 CI rather than left to chance.
 
-Dependency locking: `ironkeeper.nimble` pins `jschema == 0.1.0` exactly.
-Nimble's own lock file (`nimble.lock`) is committed when a dependency is
-resolved through the package registry, so that a build resolves the same
-artefact every time.
+Dependency locking: there is **one** dependency-resolution mechanism, and
+it is the exact-commit resolution that CI performs and that
+`tools/qualify_validator.sh` performs. The dependency is fetched at the
+exact commit `a936862556f24fde475059c560c1a13f00291457` and its **tree
+digest** is verified:
+
+```
+git archive HEAD | sha256sum
+323f47f85dba93a0f96bd3ffd6ec964abe2663e260c988596d7a49a0d68573a8
+```
+
+The digest pins the whole tree, so a rewritten tag or a changed file is
+detected. `ironkeeper.nimble` declares `requires "jschema == 0.1.0"`
+exactly.
+
+There is **no committed `nimble.lock`**, and none is claimed. The
+dependency is not resolved through the Nimble package registry, so
+Nimble produces no lock file for it, and a lock file that did not exist
+would be a claim without evidence. The exact-commit resolution *is* the
+lock.
 
 ## Proposed future decisions
 
@@ -520,12 +758,28 @@ adjustments:
   repository-owned script guarantees that CI and a developer workstation
   drive identical compiler invocations. It is a thin wrapper over `nim c`,
   not a second build system.
+* **`tools/gate*.sh`** were added. The CI gates are repository-owned
+  scripts rather than inline workflow logic. A workflow step that runs
+  several commands inside a `set +e` block cannot distinguish "the first
+  command failed" from "the last command succeeded", and that distinction
+  is exactly what a gate must get right. The gate scripts run one
+  mandatory command at a time and derive the verdict from the accumulated
+  result, so a failure cannot be masked by a later success. The
+  workflow calls the scripts; it does not reimplement them.
+* **`tools/validator_conformance.nim`** and **`tools/qualify_validator.sh`**
+  were added. The validator qualification must be reproducible from the
+  repository, with every input pinned, rather than described in prose
+  that cannot be re-run.
 
-A local Linux virtual machine was also attempted on the macOS
-development host, and was abandoned as an unjustified diversion once
-native CI runners were identified as the appropriate infrastructure. The
-approach is recorded as `SUPERSEDED_EXECUTION_ENVIRONMENT`; it is not an
-implementation failure and no product code depends on it.
+A local Linux virtual machine was attempted on the macOS development host
+during the predecessor ACT and was abandoned as an unjustified diversion
+once native CI runners were identified as the appropriate infrastructure.
+The approach is recorded as `SUPERSEDED_EXECUTION_ENVIRONMENT`; it is not
+an implementation failure and no product code depends on it. One
+orphaned process from that attempt could not be signalled from the
+sandbox and is recorded as an environment-cleanup finding for the
+operator; it is idle, it consumes no CPU, and it cannot affect the
+product or its tests.
 
 `src/ironkeeper/contracts/` holds the schemas, the validation adapter and
 the report model together, because they are one concern: the published

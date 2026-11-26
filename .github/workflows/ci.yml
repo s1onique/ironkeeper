@@ -158,81 +158,11 @@ jobs:
           cat dependency-resolution.txt
           ls -la "$HOME/.nimble/pkgs2/jschema-0.1.0"
 
-      - name: Type-check every module
-        id: typecheck
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          export IRK_DEPS_PATH="$HOME/.nimble/pkgs2/jschema-0.1.0/src"
-          # The same `nim check` invocations that `nimble check` runs.
-          # They are spelled out here so that the gate does not depend on
-          # Nimble's task runner.
-          #
-          # The output is captured into the job summary so that a failure
-          # can be diagnosed without repository admin rights.
-          set +e
-          {
-            nim check --mm:orc --path:src --path:"$IRK_DEPS_PATH" src/ironkeeper.nim
-            nim check --mm:orc --path:src --path:tests/unit --path:"$IRK_DEPS_PATH" \
-              tests/unit/all_unit_tests.nim
-            nim check --mm:orc --path:src --path:tests/unit --path:tests/contract \
-              --path:"$IRK_DEPS_PATH" tests/contract/all_contract_tests.nim
-            nim check --mm:orc --path:src --path:tests/unit --path:tests/integration \
-              --path:"$IRK_DEPS_PATH" tests/integration/all_integration_tests.nim
-          } > typecheck-output.txt 2>&1
-          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-          cat typecheck-output.txt
-
-      - name: Debug build and unit tests
-        id: buildtest
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          export IRK_DEPS_PATH="$HOME/.nimble/pkgs2/jschema-0.1.0/src"
-          # The output is captured into the job summary so that a failure
-          # can be diagnosed without repository admin rights.
-          set +e
-          {
-            tools/build.sh
-            ./build/unit_tests
-            ./build/contract_tests
-            ./build/integration_tests
-          } > build-output.txt 2>&1
-          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-          cat build-output.txt
-
-      - name: Report a failure
-        if: steps.typecheck.outcome == 'failure' || steps.buildtest.outcome == 'failure'
-        run: |
-          {
-            echo '### Failure detail'
-            echo '```'
-            cat typecheck-output.txt 2>/dev/null
-            cat build-output.txt 2>/dev/null
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::error title=CI failure::see the job summary for the compiler output"
-          exit 1
+      - name: Type-check, build and test
+        run: tools/gate_build_test.sh
 
       - name: Verify the embedded schemas match the repository
-        id: schemacheck
-        continue-on-error: true
-        run: |
-          set +e
-          nim r --hints:off tools/embed_schemas.nim --check > schemacheck.txt 2>&1
-          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-          cat schemacheck.txt
-
-      - name: Report a schema drift failure
-        if: steps.schemacheck.outcome == 'failure'
-        run: |
-          {
-            echo '### Schema embedding drift'
-            echo '```'
-            cat schemacheck.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit 1
+        run: tools/gate_schema_drift.sh
 
       # The independent validator is installed into a dedicated virtual
       # environment in its own step, and every step that uses it refers
@@ -249,56 +179,10 @@ jobs:
           "$RUNNER_TEMP/validator-venv/bin/check-jsonschema" --version
           ls -la "$RUNNER_TEMP/validator-venv/bin"
 
-      - name: Independent schema validation
-        run: |
-          set -euxo pipefail
-          VALIDATOR="$RUNNER_TEMP/validator-venv/bin/check-jsonschema"
-          # Every repository schema must itself be a valid Draft 2020-12
-          # schema. `--check-metaschema` validates the schema against the
-          # metaschema; validating a schema against itself would be
-          # meaningless.
-          for s in config report error version; do
-            "$VALIDATOR" --check-metaschema "schemas/v1/$s.schema.json"
-          done
-          # The example configuration must satisfy the configuration schema.
-          "$VALIDATOR" --schemafile schemas/v1/config.schema.json \
-            examples/ironkeeper.json
-
-      - name: Cross-check the generated machine-readable output
-        id: crosscheck
-        continue-on-error: true
-        run: |
-          set -uxo pipefail
-          VALIDATOR="$RUNNER_TEMP/validator-venv/bin/check-jsonschema"
-          ls -la "$RUNNER_TEMP/validator-venv/bin"
-          mkdir -p out
-          ./build/ironkeeper config validate \
-            --file examples/ironkeeper.json --json > out/report.json
-          ./build/ironkeeper version --json > out/version.json
-          {
-            echo '--- report.json ---'
-            cat out/report.json
-            echo '--- version.json ---'
-            cat out/version.json
-            echo '--- validation ---'
-            "$VALIDATOR" --schemafile schemas/v1/report.schema.json out/report.json
-            echo "report rc=$?"
-            "$VALIDATOR" --schemafile schemas/v1/version.schema.json out/version.json
-            echo "version rc=$?"
-          } > crosscheck.txt 2>&1
-          echo "status=$?" >> "$GITHUB_OUTPUT"
-          cat crosscheck.txt
-
-      - name: Report a cross-check failure
-        if: steps.crosscheck.outcome == 'failure'
-        run: |
-          {
-            echo '### Cross-check output'
-            echo '```'
-            cat crosscheck.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit 1
+      - name: Independent schema validation and cross-check
+        env:
+          IRK_VALIDATOR: ${{ runner.temp }}/validator-venv/bin/check-jsonschema
+        run: tools/gate_independent_check.sh
 
       - name: Release-mode compilation
         run: |
@@ -319,6 +203,24 @@ jobs:
           } | tee executable-identity.txt
           cat executable-identity.txt
 
+      # Diagnostics are collected after the gates have run, so that a
+      # failure can be diagnosed without repository admin rights. They are
+      # explicitly non-mandatory: they never influence the job conclusion.
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo '### Gate logs'
+            echo '```'
+            for f in gate-logs/*.log; do
+              [ -e "$f" ] || continue
+              echo "--- $f ---"
+              cat "$f"
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the build evidence
         if: always()
         uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
@@ -329,6 +231,7 @@ jobs:
             environment.txt
             executable-identity.txt
             dependency-resolution.txt
+            gate-logs/
           retention-days: 7
           if-no-files-found: ignore
 
@@ -369,39 +272,26 @@ jobs:
           "$RUNNER_TEMP/gitleaks/gitleaks" version
           echo "$RUNNER_TEMP/gitleaks" >> "$GITHUB_PATH"
 
+      # The scan verdict is decided by the gate script, which is
+      # fail-closed: findings fail, a missing scanner fails, a scanner
+      # that cannot execute fails, and a missing or malformed report is
+      # never reported as a clean scan.
       - name: Scan the history for secrets
-        id: gitleaks
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          # The whole history is scanned, not only the tip, so that a
-          # secret that was later removed is still detected.
-          set +e
-          gitleaks git \
-            --redact \
-            --no-banner \
-            --report-format json \
-            --report-path gitleaks-report.json \
-            --exit-code 1
-          echo "gitleaks_status=$?" >> "$GITHUB_OUTPUT"
-          exit 0
+        env:
+          GITLEAKS: ${{ runner.temp }}/gitleaks/gitleaks
+        run: tools/gate_secret_scan.sh
 
-      - name: Report the scan result
+      - name: Collect the scan diagnostics
         if: always()
         run: |
+          set -euo pipefail
           {
             echo '### Secret scan'
             echo '```'
             if [ -f gitleaks-report.json ]; then
               head -c 4000 gitleaks-report.json
             else
-              echo "(no findings; gitleaks reported no leaks)"
+              echo "(the scanner produced no report; see the gate log)"
             fi
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Fail on a detected secret
-        if: steps.gitleaks.outcome == 'failure'
-        run: |
-          echo "::error title=Secret scan failed::a potential secret was detected in the repository history; see the job summary"
-          exit 1

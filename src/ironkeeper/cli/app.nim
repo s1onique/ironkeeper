@@ -20,12 +20,20 @@ from ironkeeper/contracts/report import Report, ReportType, newReport, toJson, e
   ExecutionState, AssessmentVerdict, FindingSeverity, esFailed, esSucceeded,
   avPass, avWarn, avFail, avInconclusive, fsError, fsInfo, fsWarning, nowUtc
 from ironkeeper/contracts/schemaregistry import EmbeddedSchemaNames, schemaText
-from ironkeeper/contracts/validator import newValidator, validateAgainst
-from ironkeeper/json/strictjson import parseStrict, StrictJsonResult
+from ironkeeper/contracts/validator import newValidator, validateAgainst, SchemaIssue
+from ironkeeper/contracts/reportsemantics import validateReportSemantics
+from ironkeeper/json/strictjson import parseStrict, StrictJsonResult, MaxDocumentBytes
 from ironkeeper/config/semantics import validateConfigSemantics
 import ironkeeper/cli/args as argmod
 
 const
+  SupportedSchemaVersion* = 1
+    ## The contract schema version this build implements.
+    ##
+    ## A document that declares a different `schema_version` is reported
+    ## with the documented `unsupported_schema_version` classification,
+    ## not as an ordinary schema violation.
+
   UsageText = """
 ironkeeper - evidence-driven storage fleet housekeeping daemon
 
@@ -151,22 +159,78 @@ proc cmdSchema(ctx: var CliContext, args: argmod.ParsedArgs) =
 
 proc readDocument(path: string): tuple[node: JsonNode, text: string] =
   ## Read and strictly ingest a JSON document from `path`.
+  ##
+  ## The input is read through a **bounded** reader: the byte limit is
+  ## enforced *before* an unbounded amount of input is consumed, so a
+  ## large or endless source cannot exhaust memory. The opened input is
+  ## also checked to be a regular file, so a FIFO or a device node cannot
+  ## block the command.
   if path.len == 0:
     raise newIrkError(EInputUnavailable, "no file path was given")
   if not fileExists(path):
     raise newIrkError(EInputUnavailable, "file not found: " & path)
   if dirExists(path):
     raise newIrkError(EInputUnavailable, "not a regular file: " & path)
-  var text: string
+
+  var f: File
   try:
-    text = readFile(path)
+    if not open(f, path, fmRead):
+      raise newIrkError(EInputUnavailable, "cannot open " & path)
   except IOError as e:
-    raise newIrkError(EInputUnavailable, "cannot read " & path & ": " & e.msg)
+    raise newIrkError(EInputUnavailable, "cannot open " & path & ": " & e.msg)
+
+  # The opened handle must refer to a regular file. A FIFO, a device node
+  # or a socket would block or produce an unbounded stream.
+  #
+  # The check is made on the *opened* input, not on a pre-open observation
+  # of the path, so that a path that is replaced between the two checks
+  # cannot slip through.
+  try:
+    let info = getFileInfo(f)
+    if info.kind != pcFile:
+      close(f)
+      raise newIrkError(EInputUnavailable,
+        "not a regular file: " & path)
+  except IOError as e:
+    close(f)
+    raise newIrkError(EInputUnavailable,
+      "cannot inspect " & path & ": " & e.msg)
+
+  # Read at most the limit plus one byte. The extra byte is the overflow
+  # discriminator: if it is present, the document exceeds the limit.
+  let limit = MaxDocumentBytes
+  var buffer = newString(limit + 1)
+  var total = 0
+  try:
+    while total < buffer.len:
+      let read = f.readBuffer(addr buffer[total], buffer.len - total)
+      if read <= 0:
+        break
+      total += read
+  except IOError as e:
+    close(f)
+    raise newIrkError(EInputUnavailable,
+      "cannot read " & path & ": " & e.msg)
+  close(f)
+
+  if total > limit:
+    raise newIrkError(EInputUnavailable,
+      "the document exceeds the maximum size of " & $limit & " bytes: " & path)
+
+  let text = buffer[0 ..< total]
   let res = parseStrict(text)
   if not res.ok:
     raise newIrkError(EInvalidJsonSyntax, res.error.message,
                       "at byte offset " & $res.error.offset)
   (node: res.node, text: text)
+
+proc declaredSchemaVersion(doc: JsonNode): int =
+  ## The `schema_version` a document declares, or 0 when it declares none.
+  if doc.kind == JObject and doc.hasKey("schema_version"):
+    let v = doc["schema_version"]
+    if v.kind == JInt:
+      return v.getInt
+  0
 
 proc cmdConfigValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
   ## `ironkeeper config validate --file <path>`
@@ -238,6 +302,13 @@ proc cmdConfigValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
   if report.hasAssessment and report.verdict != avPass:
     if outcome.error != nil:
       raise newIrkError(EInternalFailure, report.assessmentSummary)
+    # An unsupported schema version has its own documented classification,
+    # distinct from an ordinary schema violation.
+    let declared = declaredSchemaVersion(doc.node)
+    if declared > 0 and declared != SupportedSchemaVersion:
+      raise newIrkError(EUnsupportedSchemaVersion,
+        "unsupported schema_version: " & $declared &
+        "; this build implements version " & $SupportedSchemaVersion)
     if outcome.issues.len > 0:
       raise newIrkError(ESchemaValidation, outcome.issues[0].message,
         outcome.issues[0].location)
@@ -245,6 +316,12 @@ proc cmdConfigValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
 
 proc cmdReportValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
   ## `ironkeeper report validate --file <path>`
+  ##
+  ## The command reports on the *document*: whether it satisfies the
+  ## structural contract and whether it satisfies the semantic contract.
+  ## It says nothing about the authenticity of the evidence the document
+  ## cites. That is a separate question, and the command does not answer
+  ## it.
   ctx.json = args.json
   let path = args.requireOption("file")
   let doc = readDocument(path)
@@ -252,35 +329,66 @@ proc cmdReportValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
   let reportSchema = parseJson(schemaText("report"))
   let outcome = validateAgainst(validator, doc.node, reportSchema)
 
+  # The semantic layer runs only when the structural layer passed: a
+  # document that does not satisfy the shape is not semantically
+  # interpretable.
+  var semantic = validateReportSemantics(doc.node)
+  var semanticApplicable = outcome.ok
+  if not outcome.ok and outcome.error != nil:
+    # An internal failure is not an ordinary invalidity. The semantic
+    # layer cannot be trusted to have run against a usable schema.
+    semanticApplicable = false
+
+  var issues = outcome.issues
+  if semanticApplicable:
+    for si in semantic.issues:
+      issues.add SchemaIssue(location: si.location, keywordLocation: "",
+                             message: si.message)
+
+  let valid = outcome.ok and semantic.ok
+
   if ctx.json:
     var root = newJObject()
     root["schema_version"] = newJInt(1)
-    root["valid"] = newJBool(outcome.ok)
-    var issues = newJArray()
-    for issue in outcome.issues:
+    root["valid"] = newJBool(valid)
+    root["structural_valid"] = newJBool(outcome.ok)
+    if semanticApplicable:
+      root["semantic_valid"] = newJBool(semantic.ok)
+    var issueArray = newJArray()
+    for issue in issues:
       var i = newJObject()
       i["location"] = newJString(issue.location)
       i["keyword_location"] = newJString(issue.keywordLocation)
       i["message"] = newJString(issue.message)
-      issues.add i
-    root["issues"] = issues
+      issueArray.add i
+    root["issues"] = issueArray
     ctx.emitJson(root)
   else:
-    if outcome.ok:
+    if valid:
       ctx.writeOut("valid")
     else:
       ctx.writeOut("invalid")
-      for issue in outcome.issues:
+      for issue in issues:
         var line = issue.location & ": " & issue.message
         if issue.keywordLocation.len > 0:
           line.add " (schema " & issue.keywordLocation & ")"
         ctx.writeOut(line)
 
-  if not outcome.ok:
+  if not valid:
     if outcome.error != nil:
       raise newIrkError(EInternalFailure, outcome.error.msg)
-    raise newIrkError(ESchemaValidation,
-      "the report document does not satisfy the report contract")
+    # An unsupported schema version has its own documented classification,
+    # distinct from an ordinary schema violation.
+    let declared = declaredSchemaVersion(doc.node)
+    if declared > 0 and declared != SupportedSchemaVersion:
+      raise newIrkError(EUnsupportedSchemaVersion,
+        "unsupported schema_version: " & $declared &
+        "; this build implements version " & $SupportedSchemaVersion)
+    if not outcome.ok:
+      raise newIrkError(ESchemaValidation,
+        "the report document does not satisfy the report contract")
+    raise newIrkError(ESemanticValidation,
+      "the report document does not satisfy the report semantics")
 
 proc dispatch(ctx: var CliContext, argv: seq[string]) =
   ## Route a command line to its implementation.

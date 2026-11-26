@@ -15,6 +15,8 @@ const
     "config",
     "error",
     "report",
+    "schemaindex",
+    "validation",
     "version",
   ]
     ## Names of the schemas embedded in the binary.
@@ -372,6 +374,114 @@ let
           "description": "Path or identifier of the subject.",
           "type": "string",
           "maxLength": 4096
+        }
+      }
+    }
+  }
+}
+""",
+    """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/schemaindex.schema.json",
+  "title": "Ironkeeper schema index",
+  "description": "Machine-readable index of the contracts that this build implements. Emitted by `ironkeeper schema list --json`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "schemas"],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this index contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "schemas": {
+      "description": "The contracts this build implements.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "version", "dialect"],
+        "properties": {
+          "name": {
+            "description": "Name of the contract.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "version": {
+            "description": "Version of the contract.",
+            "type": "integer",
+            "minimum": 1
+          },
+          "dialect": {
+            "description": "The JSON Schema dialect the contract is written in.",
+            "type": "string",
+            "const": "https://json-schema.org/draft/2020-12/schema"
+          }
+        }
+      }
+    }
+  }
+}
+""",
+    """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/validation.schema.json",
+  "title": "Ironkeeper validation result",
+  "description": "Machine-readable result of a document validation. Emitted by `ironkeeper report validate --json` and by the machine-readable form of any validation that reports a set of issues. Structural validity, semantic validity and the authenticity of the cited evidence are distinct concerns: this document reports on the document, never on the truth of what it asserts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "valid", "issues"],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this validation contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "valid": {
+      "description": "True when the validated document satisfied both the structural and the semantic contract.",
+      "type": "boolean"
+    },
+    "structural_valid": {
+      "description": "True when the validated document satisfied the structural contract. Absent when the structural check could not be completed.",
+      "type": "boolean"
+    },
+    "semantic_valid": {
+      "description": "True when the validated document satisfied the semantic contract. Absent when the semantic check could not be completed.",
+      "type": "boolean"
+    },
+    "issues": {
+      "description": "The issues that made the document invalid.",
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["message"],
+        "properties": {
+          "location": {
+            "description": "JSON Pointer into the validated document, when the issue refers to a specific position.",
+            "type": "string",
+            "maxLength": 1024
+          },
+          "keyword_location": {
+            "description": "JSON Pointer to the keyword in the schema that produced the issue.",
+            "type": "string",
+            "maxLength": 1024
+          },
+          "code": {
+            "description": "Stable machine-readable issue code.",
+            "type": "string",
+            "maxLength": 128
+          },
+          "message": {
+            "description": "Human-readable description of the issue.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
         }
       }
     }

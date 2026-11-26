@@ -126,10 +126,19 @@ Schema Draft 2020-12:
 | `report.schema.json` | The report document produced by every operation |
 | `error.schema.json` | The machine-readable error document |
 | `version.schema.json` | The version identity of a build |
+| `validation.schema.json` | The result of `report validate --json` |
+| `schemaindex.schema.json` | The result of `schema list --json` |
 
 Every object boundary rejects unknown properties. The schema bytes
 embedded in the binary are byte-for-byte identical to the files in the
 repository; a contract test enforces this.
+
+A schema must also satisfy Ironkeeper's **supported schema policy**: every
+keyword in a schema-bearing position must be one of the documented,
+supported keywords. A misspelled keyword is a *valid* Draft 2020-12
+schema, so meta-validation alone would accept it and the keyword's intent
+would be silently lost. The policy is recorded in
+[docs/architecture/overview.md](docs/architecture/overview.md#the-supported-schema-policy).
 
 ## Documentation
 

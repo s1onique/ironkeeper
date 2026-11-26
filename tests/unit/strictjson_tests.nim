@@ -25,8 +25,8 @@ proc runSuite*(): int =
     parseStrict("""{"a":"\ud83d\ude00"}""").ok)
   t.check("accepts leading whitespace", parseStrict("  \n\t {} \r\n").ok)
   t.check("accepts a negative integer", parseStrict("""{"a":-1}""").ok)
-  t.check("accepts a fractional number", parseStrict("""{"a":1.5}""").ok)
-  t.check("accepts an exponent", parseStrict("""{"a":1e3}""").ok)
+  t.check("accepts an integral value written with an exponent",
+    parseStrict("""{"a":1e3}""").ok)
 
   # The parsed value must reflect the source text exactly.
   let parsed = parseStrict("""{"a":1,"b":"x"}""")
@@ -114,6 +114,72 @@ proc runSuite*(): int =
     not parseStrict("""{"a":1e300}""").ok)
   t.checkContains("explains the precision bound",
     parseStrict("""{"a":9007199254740993}""").error.message, "2^53")
+
+  # --- The numeric policy is exact, not lossy ----------------------------
+  # A value written in a fraction or an exponent must not be rounded into
+  # the accepted range. Every mathematically equivalent spelling of the
+  # same value must be accepted or rejected together.
+  let beyondBound = [
+    """{"a":9007199254740993}""",
+    """{"a":9007199254740993.0}""",
+    """{"a":9.007199254740993e15}""",
+    """{"a":9.007199254740993E15}""",
+    """{"a":9007199254740993e0}""",
+    """{"a":-9007199254740993}""",
+    """{"a":-9007199254740993.0}""",
+    """{"a":-9.007199254740993e15}""",
+  ]
+  for lexeme in beyondBound:
+    t.check("rejects the out-of-range value " & lexeme,
+      not parseStrict(lexeme).ok)
+
+  # A noninteger must not be converted into an integer.
+  t.check("rejects a noninteger with 17 significant digits",
+    not parseStrict("""{"a":1.00000000000000001}""").ok)
+  # A nonzero number must not underflow to zero.
+  t.check("rejects a nonzero number that underflows binary64",
+    not parseStrict("""{"a":1e-400}""").ok)
+  t.check("rejects a fractional number",
+    not parseStrict("""{"a":0.1}""").ok)
+  t.check("rejects a number that overflows binary64",
+    not parseStrict("""{"a":1e309}""").ok)
+
+  # The signed minimum must be rejected as a value, not as an unhandled
+  # overflow defect. `abs(int64.low)` raises `OverflowDefect` in Nim.
+  t.check("rejects the signed minimum integer without an overflow defect",
+    not parseStrict("""{"a":-9223372036854775808}""").ok)
+  t.check("rejects a value beyond the signed 64-bit range",
+    not parseStrict("""{"a":18446744073709551615}""").ok)
+
+  # Every spelling of the same integral value must yield the same value.
+  let spellingsOf100 = [
+    """{"a":100}""",
+    """{"a":100.0}""",
+    """{"a":1e2}""",
+    """{"a":10e1}""",
+    """{"a":1000e-1}""",
+  ]
+  for lexeme in spellingsOf100:
+    let r = parseStrict(lexeme)
+    t.check("accepts the integral value written as " & lexeme, r.ok)
+    if r.ok:
+      t.checkEq("represents it exactly as 100", $r.node["a"].getInt, "100")
+
+  # An integral value in fraction notation is represented as an integer,
+  # never as a rounded float.
+  let integralFloat = parseStrict("""{"a":1.0}""")
+  t.check("accepts an integral value written as a float", integralFloat.ok)
+  if integralFloat.ok:
+    t.checkEq("represents it as an integer, not a float",
+      $integralFloat.node["a"].kind, "JInt")
+  t.check("accepts zero written in fraction notation",
+    parseStrict("""{"a":0.0}""").ok)
+  t.check("accepts a negative zero as zero",
+    parseStrict("""{"a":-0}""").ok)
+  let negativeZero = parseStrict("""{"a":-0.0}""")
+  if negativeZero.ok:
+    t.checkEq("represents a negative zero as zero",
+      $negativeZero.node["a"].getInt, "0")
 
   # --- Enforces the size limit -------------------------------------------
   var tooBig = "["
