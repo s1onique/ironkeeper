@@ -95,8 +95,12 @@ jobs:
           curl -fsSLO "https://nim-lang.org/download/${archive}"
           echo "${nim_sha}  ${archive}" | sha256sum -c -
           tar xf "${archive}"
+          # `$GITHUB_PATH` applies to later steps only, so the directory
+          # is also put on PATH for the remainder of this step.
+          export PATH="$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin:$PATH"
           echo "$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin" >> "$GITHUB_PATH"
           nim --version
+          nimble --version
 
       # std/re, which the JSON Schema validator uses for `pattern`, loads
       # PCRE dynamically at run time. The Nim distribution does not bundle
