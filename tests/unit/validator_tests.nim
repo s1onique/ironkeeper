@@ -148,8 +148,9 @@ proc runSuite*(): int =
   t.check("rejects an unknown keyword", not misspelledOutcome.ok)
   t.check("reports an unknown keyword as a schema defect",
     misspelledOutcome.error != nil)
-  t.checkContains("names the unsupported keyword",
-    misspelledOutcome.error.msg, "additionalPropeties")
+  if misspelledOutcome.error != nil:
+    t.checkContains("names the unsupported keyword",
+      misspelledOutcome.error.msg, "additionalPropeties")
 
   let misspelledMinimum = parseJson("""{"type":"integer","minimun":10}""")
   t.check("rejects a misspelled numeric bound keyword",
