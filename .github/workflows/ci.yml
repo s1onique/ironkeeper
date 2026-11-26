@@ -216,41 +216,43 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
-      - name: Independent schema validation
+      # The independent validator is installed into a dedicated virtual
+      # environment in its own step, and every step that uses it refers
+      # to it by absolute path. A bare `pip install` places the console
+      # script in a location that is not on PATH on every runner image,
+      # which produced a "command not found" failure on the arm64
+      # runner.
+      - name: Install the independent schema validator
         run: |
-          set -euo pipefail
-          # The validator is installed into a dedicated virtual
-          # environment, and that environment's bin directory is put on
-          # PATH explicitly. Installing it with a bare `pip install`
-          # places the console script in a location that is not on PATH
-          # on every runner image, which produced a "command not found"
-          # failure on the arm64 runner.
+          set -euxo pipefail
           python3 -m venv "$RUNNER_TEMP/validator-venv"
           "$RUNNER_TEMP/validator-venv/bin/pip" install --quiet \
             --disable-pip-version-check "check-jsonschema==0.31.2"
-          echo "$RUNNER_TEMP/validator-venv/bin" >> "$GITHUB_PATH"
-          # The PATH addition applies to later steps, so the tool is also
-          # selected explicitly here.
-          export PATH="$RUNNER_TEMP/validator-venv/bin:$PATH"
-          check-jsonschema --version
+          "$RUNNER_TEMP/validator-venv/bin/check-jsonschema" --version
+          ls -la "$RUNNER_TEMP/validator-venv/bin"
+
+      - name: Independent schema validation
+        run: |
+          set -euxo pipefail
+          VALIDATOR="$RUNNER_TEMP/validator-venv/bin/check-jsonschema"
           # Every repository schema must itself be a valid Draft 2020-12
           # schema. `--check-metaschema` validates the schema against the
           # metaschema; validating a schema against itself would be
           # meaningless.
           for s in config report error version; do
-            check-jsonschema --check-metaschema "schemas/v1/$s.schema.json"
+            "$VALIDATOR" --check-metaschema "schemas/v1/$s.schema.json"
           done
           # The example configuration must satisfy the configuration schema.
-          check-jsonschema --schemafile schemas/v1/config.schema.json \
+          "$VALIDATOR" --schemafile schemas/v1/config.schema.json \
             examples/ironkeeper.json
 
       - name: Cross-check the generated machine-readable output
         id: crosscheck
         continue-on-error: true
         run: |
-          set -uo pipefail
-          export PATH="$RUNNER_TEMP/validator-venv/bin:$PATH"
-          command -v check-jsonschema
+          set -uxo pipefail
+          VALIDATOR="$RUNNER_TEMP/validator-venv/bin/check-jsonschema"
+          ls -la "$RUNNER_TEMP/validator-venv/bin"
           mkdir -p out
           ./build/ironkeeper config validate \
             --file examples/ironkeeper.json --json > out/report.json
@@ -261,9 +263,9 @@ jobs:
             echo '--- version.json ---'
             cat out/version.json
             echo '--- validation ---'
-            check-jsonschema --schemafile schemas/v1/report.schema.json out/report.json
+            "$VALIDATOR" --schemafile schemas/v1/report.schema.json out/report.json
             echo "report rc=$?"
-            check-jsonschema --schemafile schemas/v1/version.schema.json out/version.json
+            "$VALIDATOR" --schemafile schemas/v1/version.schema.json out/version.json
             echo "version rc=$?"
           } > crosscheck.txt 2>&1
           echo "status=$?" >> "$GITHUB_OUTPUT"
