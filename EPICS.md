@@ -18,7 +18,7 @@ storage device.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M0 — Foundations | Architecture, contracts, CLI, tests, CI | in progress |
+| M0 — Foundations | Architecture, contracts, CLI, tests, CI | **done** |
 | M1 — Read-only inventory and SMART observations | Discovery, identity, SMART acquisition | planned |
 | M2 — Operational qualification daemon | Qualification profiles, assessment engine, job engine | planned |
 | M3 — Autonomous housekeeping and observability | Scheduling, metrics, production workloads | planned |
@@ -32,6 +32,8 @@ storage device.
 * **Priority:** P0
 * **Dependencies:** none
 * **Owning ACT:** ACT-IRONKEEPER-FOUNDATION-01
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/`
 * **Acceptance criteria:** The nine subsystem boundaries are documented;
   ADRs 0001–0008 are accepted; the invariants and the threat model exist;
   proposed decisions are recorded separately from accepted ones.
@@ -40,7 +42,8 @@ storage device.
   [docs/architecture/invariants.md](docs/architecture/invariants.md),
   [docs/architecture/threat-model.md](docs/architecture/threat-model.md),
   [docs/architecture/lifecycle.md](docs/architecture/lifecycle.md),
-  [docs/adr/](docs/adr/)
+  [docs/adr/](docs/adr/),
+  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/`
 * **Next step:** Extend the ADR set when IRK-03 introduces the identity
   persistence format.
 
@@ -51,6 +54,10 @@ storage device.
 * **Dependencies:** IRK-01
 * **Owning ACT:** ACT-IRONKEEPER-FOUNDATION-01 (foundation); future ACTs
   (storage contracts)
+* **Note:** The status covers the configuration, report, error and version
+  contracts and their runtime enforcement. The storage observation and
+  inventory contracts remain a separate deliverable and are **not**
+  covered by it.
 * **Acceptance criteria:** Configuration, report, error and version
   schemas exist at version 1, are Draft 2020-12, reject unknown
   properties, and are embedded byte-for-byte. Runtime validation is
@@ -63,7 +70,9 @@ storage device.
   `tests/contract/schema_contract_tests.nim`,
   `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/`
 * **Next step:** Define the storage observation and inventory report
-  contracts when IRK-03 and IRK-04 have concrete output to model.
+  contracts when IRK-03 and IRK-04 have concrete output to model. The
+  numeric convention for byte counters beyond 2^53 is already decided and
+  recorded in the architecture overview.
 
 ### IRK-03 — Linux discovery and persistent device identity
 
@@ -248,6 +257,22 @@ storage device.
   prediction analysis; a prediction is distinguishable from an
   observation and from a verdict.
 * **Next step:** None.
+
+## Execution environment
+
+The foundation milestone established the Linux-native execution path.
+See `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/linux-native.md`.
+
+| Environment | Role | Status |
+|---|---|---|
+| GitHub Actions `ubuntu-24.04` | native Linux amd64, authoritative | in use |
+| GitHub Actions `ubuntu-24.04-arm` | native Linux arm64 | in use |
+| macOS workstation | editing, portable build and tests, static analysis | in use |
+
+A local Linux guest under QEMU was attempted and abandoned as an
+unjustified diversion once native runners were identified. It is
+recorded as `SUPERSEDED_EXECUTION_ENVIRONMENT`, not as an
+implementation failure. No product code depends on it.
 
 ## First real-world use case
 

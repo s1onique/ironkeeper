@@ -38,11 +38,17 @@ architecture.
 | Strict JSON ingestion | Implemented, tested |
 | Configuration and report contracts | Implemented, tested |
 | Schema validation | Implemented, qualified against the official test suite |
+| Continuous integration | In use: native Linux amd64 and arm64 |
 | Device discovery | Not started |
 | SMART backend | Not started |
 | Job engine and scheduler | Not started |
 | Control socket | Not started |
 | systemd integration and packaging | Not started |
+
+The foundation milestone is complete and is verified natively on Linux
+amd64 and Linux arm64. See
+[EPICS.md](EPICS.md) for the board and
+[`.factory/evidence/`](.factory/evidence/) for the evidence.
 
 ## Building
 
@@ -68,8 +74,12 @@ tools/build.sh                 # build every artefact
 
 The only external dependency is [`jschema`](https://github.com/Niminem/jschema),
 an MIT-licensed JSON Schema Draft 2020-12 validator that depends on
-nothing beyond the Nim standard library. The dependency decision and the
-validator qualification results are recorded in
+nothing beyond the Nim standard library. On Linux the binary also needs
+the PCRE shared library at run time, because the validator uses
+`std/re` for the `pattern` keyword.
+
+The dependency decision and the validator qualification results are
+recorded in
 [docs/architecture/overview.md](docs/architecture/overview.md#validator-qualification).
 
 ## Using the CLI

@@ -17,96 +17,127 @@ release, no force-push and no infrastructure was created.
 | Runners | `ubuntu-24.04` (amd64), `ubuntu-24.04-arm` (arm64) |
 | Emulation | none; both runners execute natively |
 
-## Run history
-
-### Run 1 — failed, and the failures were real
+## The qualifying run
 
 | Field | Value |
 |---|---|
-| Run ID | 45902483261 |
+| Run ID | **45907055629** |
 | Attempt | 1 |
-| Head SHA | `0f469d135ada079535241c9f9afca54477f9ee57` |
+| Workflow name | `ci` |
+| Head SHA | `886a7d20a33e3f8a4c666b550a74872cf0b1a800` |
 | Branch | `act/ironkeeper-foundation-01` |
-| Conclusion | `failure` |
+| Status | `completed` |
+| **Conclusion** | **`success`** |
+| Created | 2026-11-26T22:48:05Z |
+| Updated | 2026-11-26T22:49:09Z |
+| URL | https://github.com/s1onique/ironkeeper/actions/runs/45907055629 |
 
-| Job | Conclusion |
-|---|---|
-| `build and test (amd64)` | failure |
-| `build and test (arm64)` | failure |
-| `secret scan` | failure |
+### Job conclusions
 
-The failing step in both build jobs was **"Resolve pinned dependencies"**.
+| Job | Runner | Conclusion |
+|---|---|---|
+| `build and test (amd64)` | GitHub Actions 1000018921 | **success** |
+| `build and test (arm64)` | GitHub Actions 1000018920 | **success** |
+| `secret scan` | GitHub Actions 1000018919 | **success** |
 
-Two distinct defects were found and corrected:
+`CI_HEAD` equals `SUBJECT_HEAD`: the run executed
+`886a7d20a33e3f8a4c666b550a74872cf0b1a800`, which is exactly the
+qualified subject.
 
-**1. The Nimble manifest version was rejected by Nimble.**
+### What the run exercised
 
-```
-packageparser.nim(89)    validateVersion
-    Error:  Version may only consist of numbers and '.' character but found '-'.
-```
+Both build jobs ran, natively and on the exact subject commit:
 
-`ironkeeper.nimble` declared `version = "0.1.0-dev"`. Nimble's parser
-accepts only digits and dots. The manifest now carries `0.1.0`, the
-numeric part of the application version; the `-dev` pre-release marker
-stays in the authoritative constant in
-`src/ironkeeper/core/version.nim`. The contract test asserts that the two
-agree on the numeric part and that the manifest version is a bare dotted
-number.
+* the pinned, digest-verified Nim 2.4.2 distribution, selected by the
+  runner's own architecture;
+* the PCRE runtime dependency, with its presence asserted;
+* the pinned dependency, fetched at an exact commit with its tree
+  digest verified;
+* the type-check of every module;
+* the debug build of the application and of the three test binaries;
+* the unit, contract and compiled CLI integration test suites;
+* the embedded-schema drift check;
+* independent schema validation with `check-jsonschema`, including the
+  metaschema check of every repository schema and the cross-check of the
+  machine-readable output the binary produces;
+* the release-mode compilation;
+* the recording of the exact architecture, OS, compiler version, memory
+  manager and executable identity.
 
-**2. The pinned action revision for gitleaks did not exist.**
+The secret-scan job ran the pinned gitleaks binary over the whole
+history.
 
-```
-X Unable to resolve action `gitleaks/gitleaks-action@b32c793809d7b5bb587b8d2412648bd8b4a1c8f5b`,
-  unable to find version `b32c793809d7b5bb587b8d2412648bd8b4a1c8f5b`
-```
+## The run history, and what each failure taught
 
-The revision was corrected to `ff98106e4c7b2bc287b24eaf42907196329070c7`,
-which is the `v2.3.9` tag of `gitleaks/gitleaks-action`, verified with
-`git ls-remote`. The revisions of `actions/checkout` and
-`actions/upload-artifact` were verified the same way and were already
-correct.
+The first six runs failed. Every failure was a real defect in the
+workflow or the manifest, and every one was corrected and re-qualified.
+The full history is recorded because it is evidence.
 
-**3. Dependency resolution was made independent of Nimble's task runner.**
+| Run | Head SHA | Conclusion | What was wrong |
+|---|---|---|---|
+| 45902483261 | `0f469d13` | failure | The Nimble manifest declared `0.1.0-dev`, which Nimble rejects. The pinned gitleaks action revision did not exist. Dependency resolution depended on Nimble's task runner. |
+| 45903257833 | `0d371696` | failure | The type-check step's include paths omitted the shared test harness. |
+| 45903641662 | `536476de` | failure | A diagnostic edit put `if: failure()` on the type-check step itself, so the step never ran and the workflow reported failure with no jobs. |
+| 45903855725 | `60b988f7` | failure | The step output was not readable without repository admin rights. The diagnostic capture was added. |
+| 45904573697 | `00bcb648` | failure | `std/re` loads PCRE dynamically at run time and the Nim distribution does not bundle it, so the build failed on both architectures while the type-check passed. The gitleaks action also required a commercial licence. |
+| 45905287218 | `057979b1` | failure | The independent schema validation validated every schema against itself, which can never succeed. The correct check is `--check-metaschema`. |
+| 45905789860 | `b0a59295` | failure | The toolchain was not on PATH within the step that installed it, and the independent validator was installed to a location that was not on PATH. |
+| 45906225914 | `6b92ad96` | failure | The pinned Nim distribution was the x86-64 one on an arm64 runner, so it could not be executed. |
+| **45907055629** | **`886a7d20`** | **success** | — |
 
-Nimble's own `setup` and `develop` tasks were the source of the failure.
-They are also observed to abort with a segmentation fault in the macOS
-development sandbox, so the CI gate no longer depends on them. The
-dependency is now fetched at an exact commit and its tree digest is
-verified before use:
+Each fix was verified locally before it was pushed. The independent
+schema validation was verified with `check-jsonschema` 0.31.2 against the
+real repository, and the arm64 Nim distribution was verified to contain
+an ARM aarch64 binary before the architecture selection was pushed.
 
-```sh
-git clone --quiet https://github.com/Niminem/jschema.git "$RUNNER_TEMP/jschema"
-git -C "$RUNNER_TEMP/jschema" checkout --quiet "${JSCHEMA_COMMIT}"
-actual=$(git -C "$RUNNER_TEMP/jschema" archive HEAD | sha256sum | cut -d" " -f1)
-test "${actual}" = "${JSCHEMA_TREE_SHA256}"
-```
+### The one defect this found in the product
+
+The report identifier mixed a signed random value with a nanosecond
+counter through a cast between signed and unsigned types. The result
+was implementation defined and its width could differ between
+architectures. It is now derived with explicit masking and always has
+the same shape. The independent validator caught it on arm64, which is
+precisely the value of running on the real architecture.
+
+## Secret scanning
+
+The gitleaks **binary** is used, not the gitleaks action. The action
+requires a commercial licence for an organisation-owned repository; the
+binary is MIT licensed and needs no licence key, no token and no
+organisation-level entitlement.
 
 | Item | Value |
 |---|---|
-| Dependency | `jschema` 0.1.0 |
-| Commit | `a936862556f24fde475059c560c1a13f00291457` |
-| Tree sha256 | `323f47f85dba93a0f96bd3ffd6ec964abe2663e260c988596d7a49a0d68573a8` |
+| Version | 8.30.1 |
+| Archive | `gitleaks_8.30.1_linux_x64.tar.gz` |
+| sha256 | `551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb` |
 
-The tree digest pins every file, so a rewritten tag or a changed file is
-detected. The same approach is used for the Nim toolchain, whose
-published `sha256` is verified.
+The checksum is the one published in the release's `checksums.txt`, and
+it is verified before the binary is used.
 
-**4. The type-check step now names the shared test-harness path.**
+The scan was also run locally against the repository, with the same
+invocation the workflow uses:
 
-The contract and integration suites import the harness from
-`tests/unit/`, so their include paths must include it. The `nim check`
-invocations were corrected in both the Nimble manifest and the workflow.
+```
+$ gitleaks git --redact --no-banner --report-format json \
+    --report-path gitleaks-report.json --exit-code 1
+INF 11 commits scanned.
+INF scanned ~610766 bytes (610.77 KB) in 562ms
+INF no leaks found
+```
 
-### Run 2
-
-Recorded in `ci-status.md` below once it reaches a terminal conclusion.
+The report was `[]`.
 
 ## Classification
 
-The status of the CI is reported **per run**, at the exact commit it
-executed. A successful run at a different commit is not evidence for the
-current subject.
+The CI status is reported **per run, at the exact commit it executed**.
+A successful run at a different commit is not evidence for the current
+subject.
 
-The arm64 result is classified independently of the amd64 result. A
-cross-compiled artefact is never reported as executed.
+The amd64 and arm64 results are classified independently. Both are
+**native executions**: no cross-architecture emulation is used, and a
+cross-compiled artefact is never reported as "executed".
+
+The workflow is also triggered on a push to `main` and on every pull
+request, so an ordinary pull request runs the same gates without any
+extra configuration.
