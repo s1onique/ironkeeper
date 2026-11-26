@@ -92,6 +92,32 @@ the README. No code, test, schema, dependency, build configuration or
 workflow definition changes, so the qualification of the subject remains
 valid, and the final head is independently qualified as well.
 
+## The run on the final head
+
+The evidence commit changes no executable content, and the workflow was
+run again on it to confirm that:
+
+| Field | Value |
+|---|---|
+| Run ID | **45908229091** |
+| Attempt | 1 |
+| Head SHA | `70d74877cb8f20431dcf57029e03aa59e686aab8` |
+| Branch | `act/ironkeeper-foundation-01` |
+| Conclusion | **success** |
+
+| Job | Runner | Conclusion |
+|---|---|---|
+| `build and test (amd64)` | GitHub Actions 1000018928 | success |
+| `build and test (arm64)` | GitHub Actions 1000018930 | success |
+| `secret scan` | GitHub Actions 1000018929 | success |
+
+The difference between the qualified subject `886a7d20` and the final
+head `70d74877` is confined to the evidence bundle, the epic board, the
+README and the `.gitignore`. No code, test, schema, dependency, build
+configuration or workflow definition changes, so the qualification of
+the subject remains valid, and the final head is independently
+qualified as well.
+
 ## The run history, and what each failure taught
 
 The first six runs failed. Every failure was a real defect in the
@@ -109,6 +135,8 @@ The full history is recorded because it is evidence.
 | 45905789860 | `b0a59295` | failure | The toolchain was not on PATH within the step that installed it, and the independent validator was installed to a location that was not on PATH. |
 | 45906225914 | `6b92ad96` | failure | The pinned Nim distribution was the x86-64 one on an arm64 runner, so it could not be executed. |
 | **45907055629** | **`886a7d20`** | **success** | — |
+| 45907640271 | `a8372fa8` | success | The evidence commit; no executable change |
+| **45908229091** | **`70d74877`** | **success** | The final head |
 
 Each fix was verified locally before it was pushed. The independent
 schema validation was verified with `check-jsonschema` 0.31.2 against the
