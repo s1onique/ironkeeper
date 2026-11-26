@@ -30,9 +30,12 @@ concurrency:
 
 env:
   NIM_VERSION: "2.4.2"
-  # sha256 of the official linux_x64 distribution, as published at
-  # https://nim-lang.org/download/nim-2.4.2-linux_x64.tar.xz.sha256
-  NIM_SHA256: "0ee5b16e81852a956d4fddb4aa44b5958c645c992132fa43be45f489573ee325"
+  # The official Nim distributions are per-architecture. The sha256 of each
+  # is the one published alongside it at
+  # https://nim-lang.org/download/nim-<version>-linux_<arch>.tar.xz.sha256
+  # and is verified before the toolchain is used.
+  NIM_SHA256_AMD64: "0ee5b16e81852a956d4fddb4aa44b5958c645c992132fa43be45f489573ee325"
+  NIM_SHA256_ARM64: "58e86d84e679d003ec04320b2411cd10aefd942132f9eaf6c583012b22be3595"
   # The pinned validator. The commit is the exact tree that was qualified
   # against the official JSON Schema Test Suite; see
   # docs/architecture/overview.md, "Validator qualification".
@@ -77,12 +80,23 @@ jobs:
       - name: Install the pinned Nim toolchain
         run: |
           set -euo pipefail
+          # The official Nim distribution is per-architecture, and the
+          # runner's own architecture selects it. Downloading the x86-64
+          # distribution on an arm64 runner produces a binary that cannot
+          # be executed.
+          case "$(uname -m)" in
+            x86_64)  nim_arch=x64;   nim_sha="$NIM_SHA256_AMD64" ;;
+            aarch64) nim_arch=arm64; nim_sha="$NIM_SHA256_ARM64" ;;
+            *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          archive="nim-${NIM_VERSION}-linux_${nim_arch}.tar.xz"
           mkdir -p "$RUNNER_TEMP/nim"
           cd "$RUNNER_TEMP/nim"
-          curl -fsSLO "https://nim-lang.org/download/nim-${NIM_VERSION}-linux_x64.tar.xz"
-          echo "${NIM_SHA256}  nim-${NIM_VERSION}-linux_x64.tar.xz" | sha256sum -c -
-          tar xf "nim-${NIM_VERSION}-linux_x64.tar.xz"
+          curl -fsSLO "https://nim-lang.org/download/${archive}"
+          echo "${nim_sha}  ${archive}" | sha256sum -c -
+          tar xf "${archive}"
           echo "$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin" >> "$GITHUB_PATH"
+          nim --version
 
       # std/re, which the JSON Schema validator uses for `pattern`, loads
       # PCRE dynamically at run time. The Nim distribution does not bundle
