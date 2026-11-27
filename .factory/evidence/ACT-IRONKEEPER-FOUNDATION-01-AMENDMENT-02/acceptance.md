@@ -17,11 +17,11 @@
 | **A11** | Evidence identities reconciled | **MET** | `ci-qualification.md`, "Run identity ledger": every run ID identifies exactly one observed commit. The predecessor's duplicate "final head" sections are separated, its `FINAL_HEAD` is corrected to `aeb10ae`, and its run-count claim is corrected from six to eight. |
 | **A12** | Dependency authority documented and reproducible | **MET** | `docs/architecture/overview.md`, "Dependency decisions": there is **one** mechanism, the exact-commit resolution with a verified tree digest, and **no** committed `nimble.lock` is claimed. The predecessor's claim that a lock file was committed is corrected. `tools/qualify_validator.sh` performs the same resolution and refuses a different revision. |
 | **A13** | Patch hygiene clean | **MET** | `git diff --check` passes, and no tracked file contains trailing whitespace. The one violation found during this ACT — a blank line at the end of `ci.yml` — was corrected. |
-| **A14** | Native amd64 build and execution pass | **MET** | `ci-qualification.md`: run **45912585631**, job `build and test (amd64)`, runner `GitHub Actions 1000018961`, conclusion **success**, native execution on `ubuntu-24.04`. |
-| **A15** | Native arm64 result independently classified | **MET** | `ci-qualification.md`: run **45912585631**, job `build and test (arm64)`, runner `GitHub Actions 1000018960`, conclusion **success**, native execution on `ubuntu-24.04-arm`. No cross-architecture emulation was used, so the result is a genuine arm64 execution. The predecessor's claim that the authoritative arm64 build was a cross-compilation is corrected. |
+| **A14** | Native amd64 build and execution pass | **MET** | `ci-qualification.md`: run **45912585631**, job `build and test (amd64)`, runner `GitHub Actions 1000018961`, conclusion **success**, native execution on `ubuntu-24.04`. The final head is independently confirmed by run **45915464716**, job `build and test (amd64)`, runner `GitHub Actions 1000018970`, conclusion **success**. |
+| **A15** | Native arm64 result independently classified | **MET** | `ci-qualification.md`: run **45912585631**, job `build and test (arm64)`, runner `GitHub Actions 1000018960`, conclusion **success**, native execution on `ubuntu-24.04-arm`. The final head is independently confirmed by run **45915464716**, job `build and test (arm64)`, runner `GitHub Actions 1000018969`, conclusion **success**. No cross-architecture emulation was used, so the result is a genuine arm64 execution. The predecessor's claim that the authoritative arm64 build was a cross-compilation is corrected. |
 | **A16** | No physical hardware operations | **MET** | The application opens no device, runs no storage tool and opens no socket. `ironkeeper daemon` returns an explicit unsupported-operation result. The amendment touched no hardware and implemented no SMART acquisition. |
 | **A17** | Original MIT licence preserved | **MET** | `shasum -a 256 LICENSE` is `307c6257a17d9d9c7f0a0d5d321fc1606fa53ef1e9da305b0d3012218f63393c`, unchanged from the entry commit. |
-| **A18** | Final implementation committed | **MET** | The implementation is committed on `act/ironkeeper-foundation-01-amendment-02`. The post-qualification diff is confined to non-executable evidence and documentation; see `post-qualification-diff.md`. |
+| **A18** | Final implementation committed | **MET** | The implementation is committed on `act/ironkeeper-foundation-01-amendment-02` and pushed. The post-qualification diff is confined to non-executable evidence and documentation; see `post-qualification-diff.md`. The final head was independently run: **45915464716** at `c4fee46d`, conclusion **success**. |
 | **A19** | All outstanding terminal observations classified | **MET** | `remaining-limitations.md`: every observation is classified as **resolved**, **recorded as a known limitation**, or **an environment-cleanup item for the operator**. The orphaned QEMU process is the only environment-cleanup item, and it cannot interfere with subsequent testing. |
 | **A20** | Epic board and acceptance evidence updated | **MET** | `EPICS.md` carries the amendment's board entry, the corrected M0 status, the IRK-01 and IRK-02 ownership, and the orphaned-process finding. This file is the acceptance evidence. |
 
@@ -35,7 +35,7 @@
 | `SUBJECT_HEAD` | `b6f8142e6d17910de3ac92cb8523a9338057b33b` |
 | `CI_HEAD` | `b6f8142e6d17910de3ac92cb8523a9338057b33b` |
 | `CI_RUN_ID` | `45912585631` |
-| `FINAL_HEAD` | the commit that carries this evidence bundle |
+| `FINAL_HEAD` | `c4fee46dbdba89f1e872dba79ccfcd628684e59f` (plus the evidence-only commit that records this file) |
 
 `CI_HEAD` equals `SUBJECT_HEAD`: the qualifying run executed exactly the
 qualified commit.

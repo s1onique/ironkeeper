@@ -200,8 +200,35 @@ commit. No run is identified at a commit it did not execute.
 | Run ID | Head SHA | Conclusion | Subject |
 |---|---|---|---|
 | 45912205110 | `afa6dd76` | failure | the gate script before the dependency-path fix |
-| **45912585631** | **`b6f8142e`** | **success** | **the qualified subject** |
+| **45912585631** | **`b6f8142e`** | **success** | **the qualified executable subject** |
 | **45912607978** | **`2bb64bdd`** | **failure** | the CI negative witness |
+| **45915464716** | **`c4fee46d`** | **success** | the final head, evidence-only diff |
+
+### The run on the final head
+
+The evidence bundle was committed after the qualification, so the final
+head was run once as well. Its executable content is identical to the
+qualified subject, and the run is recorded here for completeness:
+
+| Field | Value |
+|---|---|
+| Run ID | **45915464716** |
+| Head SHA | `c4fee46dbdba89f1e872dba79ccfcd628684e59f` |
+| Branch | `act/ironkeeper-foundation-01-amendment-02` |
+| Status | `completed` |
+| **Conclusion** | **`success`** |
+| URL | https://github.com/s1onique/ironkeeper/actions/runs/45915464716 |
+
+| Job | Runner | Conclusion |
+|---|---|---|
+| `build and test (amd64)` | GitHub Actions 1000018970 | **success** |
+| `build and test (arm64)` | GitHub Actions 1000018969 | **success** |
+| `secret scan` | GitHub Actions 1000018971 | **success** |
+
+The **qualified executable subject** remains `b6f8142e`, qualified by
+run 45912585631. The run at the final head is an additional
+confirmation, not a replacement: `post-qualification-diff.md` proves
+that the executable content is identical between the two commits.
 
 ## The evidence-only commit
 
