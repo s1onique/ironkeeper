@@ -59,7 +59,12 @@ jobs:
   build-test:
     name: build and test (${{ matrix.architecture }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
+    # The job carries the build, the three test suites, the schema drift
+    # check, the non-vacuity gate - which rebuilds the tree for every
+    # mutation it reverses - the fault injection and the independent
+    # cross-check. The budget is set so that the slowest runner finishes
+    # the whole set.
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
