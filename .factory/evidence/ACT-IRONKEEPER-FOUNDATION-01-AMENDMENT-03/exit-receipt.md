@@ -6,8 +6,14 @@ ENTRY_HEAD: fb9c5f6d5ec602b272c108a9d23a7342cbadcd35
 SUBJECT_HEAD: 419eb8ca584c37a47b2e8dc4f72230367cc87143
 CI_HEAD: none — no CI run could be triggered (no GitHub credential in the sandbox)
 CI_RUN_ID: none
-FINAL_HEAD: 9ec3214ca21a0dc36ba54f39c915ae6ddab4dade
+FINAL_HEAD: 7c21bff2ca1ee24f93b95d7fb067448d16add2b9
 BRANCH: act/ironkeeper-foundation-01-amendment-03
+FINAL_HEAD_NOTE: >
+  The commit that carries this line is the branch head and changes only this
+  line. The qualified subject is 419eb8c; the commits after it touch the
+  evidence bundle and the epic board only. The post-qualification diff is
+  therefore documentation-only, and no executable source, schema, gate
+  script or workflow changed after the subject was qualified.
 
 CONFORMANCE_ORACLE_AUTHORITY: >
   ESTABLISHED. The harness compares the observed verdict with the expected
