@@ -75,6 +75,10 @@ proc buildSysfs(root: string) =
   writeFixture(blockDir / "vda/queue/physical_block_size", "512\n")
   writeFixture(blockDir / "vda/device/driver", "vd\n")
 
+  writeFixture(blockDir / "zd0/dev", "250:0\n")
+  writeFixture(blockDir / "zd0/size", "1048576\n")
+  writeFixture(blockDir / "zd0/queue/logical_block_size", "512\n")
+
   writeFixture(blockDir / "loop0/dev", "7:0\n")
   writeFixture(blockDir / "loop0/size", "0\n")
   writeFixture(blockDir / "loop0/queue/logical_block_size", "512\n")
@@ -104,7 +108,7 @@ proc runSuite*(): int =
 
   let inventory = discover(roots)
   t.check("the discovery of a readable tree is complete", inventory.complete)
-  t.checkEq("the tree contains four block devices", inventory.devices.len, 4)
+  t.checkEq("the tree contains five block devices", inventory.devices.len, 5)
 
   var disk: DeviceRecord
   for d in inventory.devices:

@@ -95,8 +95,11 @@ proc readUdevProps(path: string): Table[string, string] =
 proc isPartitionName(name: string): bool =
   ## True when a kernel block name denotes a partition.
   ##
-  ## A partition name is a disk name followed by digits: `sda1`, `nvme0n1p3`.
-  ## A name without a trailing digit is never a partition.
+  ## A partition name is a disk name followed by digits: `sda1`,
+  ## `nvme0n1p3`. A name without a trailing digit is never a partition,
+  ## and only the kernel naming schemes that actually produce partitions
+  ## are considered: the trailing digits of a `zd0` or a `md0` name are
+  ## part of the name, not a partition number.
   var i = name.len - 1
   if i < 0 or name[i] notin {'0' .. '9'}:
     return false
@@ -116,7 +119,23 @@ proc isPartitionName(name: string): bool =
   for ch in stem:
     if not (ch in {'a' .. 'z'} or ch in {'A' .. 'Z'}):
       return false
-  true
+  # The stem must look like a kernel disk name: `sd`, `hd`, `vd`, `xvd`,
+  # `nvme`, `mmcblk`.
+  let lower = stem.toLowerAscii
+  var isDiskStem = lower.startsWith("sd") or lower.startsWith("hd") or
+                   lower.startsWith("vd") or lower.startsWith("xvd") or
+                   lower.startsWith("nvme") or lower.startsWith("mmcblk")
+  if not isDiskStem:
+    # A namespace name carries the namespace number before the `p`:
+    # `nvme0n1p3` has the stem `nvme0n1`.
+    let withoutNumbers = lower.replace("0", "").replace("1", "")
+                             .replace("2", "").replace("3", "")
+                             .replace("4", "").replace("5", "")
+                             .replace("6", "").replace("7", "")
+                             .replace("8", "").replace("9", "")
+    isDiskStem = withoutNumbers.startsWith("nvme") or
+                 withoutNumbers.startsWith("mmcblk")
+  isDiskStem
 
 proc classifyByName(name: string): DeviceClass =
   ## Classify a block device by its kernel name.
@@ -137,6 +156,10 @@ proc classifyByName(name: string): DeviceClass =
   if name.startsWith("vd") or name.startsWith("xvd"):
     return dcVirtual
   if name.startsWith("nbd") or name.startsWith("zfs"):
+    return dcVirtual
+  if name.startsWith("zd"):
+    # A ZFS zvol is a logical volume on top of a pool. It is not a
+    # physical disk, and it is not a partition of one either.
     return dcVirtual
   dcUnknown
 
@@ -197,14 +220,16 @@ proc collectAliases(devRoot: string, wanted: seq[string]): Table[string, seq[str
     if not dirExists(aliasDir):
       continue
     for kind, path in walkDir(aliasDir):
-      if not fileExists(path):
+      # The alias is a symbolic link to a device node, so it is not a
+      # regular file. The link itself is what matters here.
+      if dirExists(path):
         continue
       let target = resolveAliasTarget(path)
       if target.len == 0 or target notin wanted:
         continue
       let alias = path.absolutePath
-      if alias notin result[target]:
-        result[target].add alias
+      if alias notin result.getOrDefault(target, @[]):
+        result.mgetOrPut(target, @[]).add alias
   for key in result.keys:
     result[key].sort()
 
