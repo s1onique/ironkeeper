@@ -5,25 +5,25 @@
 | Item | Value |
 |---|---|
 | Executable subject | `build/ironkeeper` (production variant) and `build/ironkeeper-testing` (test-enabled variant) |
-| Source revision of the subject | `3032d39fda9b2168681f028ae681b28344efc224` (the repair commit of this amendment) |
-| Build toolchain | Nim 2.2.4, `--mm:orc`, release mode (`-d:release --opt:speed`) |
+| Source revision of the subject | `0f88baefbba610bb492ad4fe9fa7cef701941ab2` (the last commit that changed the production code) |
+| Qualified head | `829b56f5ff764b509065e62dba9a5a17300d83fc` (the head of the green native run) |
+| Build toolchain | Nim 2.4.2 (the pinned version), `--mm:orc`, release mode (`-d:release --opt:speed`) |
 | Local execution environment | macOS arm64 - **not** the qualified native environment |
-| Production digest (local build) | `f41d24225cf91bdc9976da337de92d373672980e4cb9817617917fbd517f10c9` |
-| Test-enabled digest (local build) | `31ea021bf303679e0568af8f75223b5e5c3ae70177404fe9e174818bdb820f` |
-| Authoritative executable | the native CI artefact of the final subject; see `native-ci.md` |
-| Authoritative digest | the digest recorded by the native CI run of the final subject |
+| Authoritative executable | the native CI artefact `build/ironkeeper` of the qualified head; see `native-ci.md` |
+| Authoritative digest | the digest that the native run recorded in `executable-identity.txt`; the artefact was not retrieved by the development agent, because the retrieval needs administrative rights on the repository |
 
-The digests above are the digests of the **local** build. They are
-recorded so that the local subject is identifiable, and they are **not**
-the digest of the qualified artefact: the qualified artefact is produced
-by the native CI run, whose digest is recorded in `native-ci.md`.
+The local build is **not** the qualified artefact: the qualified artefact
+is produced by the native CI run, which records the digest of each
+variant in `executable-identity.txt`. The development agent did not
+retrieve the artefact, because the retrieval needs administrative rights
+on the repository that this agent does not have.
 
 ## The reconciled identities
 
 | Item | Value |
 |---|---|
 | Entry HEAD | `965940647a123bedb25dd609019208b4c84a967e` |
-| Subject HEAD (the repair commit) | `3032d39fda9b2168681f028ae681b28344efc224` |
+| Subject HEAD (the repair commit) | `0f88baefbba610bb492ad4fe9fa7cef701941ab2` |
 | Final HEAD (the last commit of the branch) | recorded in `exit-receipt.yaml` |
 | CI head | the head of the native run recorded in `native-ci.md` |
 | CI run | recorded in `native-ci.md` |
