@@ -67,10 +67,12 @@ Both build jobs ran, natively and on the exact subject commit:
 The secret-scan job ran the pinned gitleaks binary over the whole
 history.
 
-## The run on the final head
+## The runs on the evidence-only commits
 
-The evidence commit changes no executable content, and the workflow was
-run again on it to confirm that:
+Each evidence-only commit was independently qualified, and each run
+identifies exactly one commit. The order is chronological.
+
+### The run on `a8372fa8`
 
 | Field | Value |
 |---|---|
@@ -86,16 +88,22 @@ run again on it to confirm that:
 | `build and test (arm64)` | GitHub Actions 1000018922 | success |
 | `secret scan` | GitHub Actions 1000018923 | success |
 
-The difference between the qualified subject `886a7d20` and the final
-head `a8372fa8` is confined to the evidence bundle, the epic board and
-the README. No code, test, schema, dependency, build configuration or
-workflow definition changes, so the qualification of the subject remains
-valid, and the final head is independently qualified as well.
+The difference between the qualified subject `886a7d20` and `a8372fa8`
+is confined to the evidence bundle, the epic board and the README. No
+code, test, schema, dependency, build configuration or workflow
+definition changes.
 
-## The run on the final head
+### The run on `ccd814f5`
 
-The evidence commit changes no executable content, and the workflow was
-run again on it to confirm that:
+| Field | Value |
+|---|---|
+| Run ID | **45907844182** |
+| Attempt | 1 |
+| Head SHA | `ccd814f5` |
+| Branch | `act/ironkeeper-foundation-01` |
+| Conclusion | **success** |
+
+### The run on `70d74877`
 
 | Field | Value |
 |---|---|
@@ -114,13 +122,41 @@ run again on it to confirm that:
 The difference between the qualified subject `886a7d20` and the final
 head `70d74877` is confined to the evidence bundle, the epic board, the
 README and the `.gitignore`. No code, test, schema, dependency, build
-configuration or workflow definition changes, so the qualification of
-the subject remains valid, and the final head is independently
-qualified as well.
+configuration or workflow definition changes, so the qualification of the
+subject remains valid, and the final head is independently qualified as
+well.
+
+### The run on `aeb10ae`, the entry head of the amendment ACT
+
+| Field | Value |
+|---|---|
+| Run ID | **45908776155** |
+| Attempt | 1 |
+| Head SHA | `aeb10ae594e695dda163a4053bdb6944b2c89ca7` |
+| Branch | `act/ironkeeper-foundation-01` |
+| Conclusion | **success** |
+
+### The run on `main`
+
+| Field | Value |
+|---|---|
+| Run ID | **45909128457** |
+| Attempt | 1 |
+| Head SHA | `aeb10ae594e695dda163a4053bdb6944b2c89ca7` |
+| Branch | `main` |
+| Conclusion | **success** |
+
+### A note on the "final head"
+
+This file previously carried two sections with the same heading, "The
+run on the final head", for two different commits. The commits are now
+listed separately, each with its own run ID. The distinction matters: a
+successful run at a different commit is not evidence for the current
+subject.
 
 ## The run history, and what each failure taught
 
-The first six runs failed. Every failure was a real defect in the
+The first **eight** runs failed. Every failure was a real defect in the
 workflow or the manifest, and every one was corrected and re-qualified.
 The full history is recorded because it is evidence.
 

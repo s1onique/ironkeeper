@@ -19,10 +19,23 @@
 | **G13** | Epic board and ADRs complete for current scope | **MET** | `EPICS.md` carries all eighteen epics; `docs/adr/` carries ADR-0001 through ADR-0008. |
 | **G14** | No real hardware operations performed | **MET** | The M0 application opens no device, runs no storage tool and opens no socket. `ironkeeper daemon` returns an explicit unsupported-operation result. No hardware was touched at any point. |
 | **G15** | Dependency licences and public-repository hygiene verified | **MET** | `dependencies.md`: every dependency, its licence and why it is needed. The gitleaks scan reports no leaks; the staged content was also inspected manually. |
-| **G16** | Final changes committed and attributable | **MET** | 17 reviewable commits on `act/ironkeeper-foundation-01`, each with a conventional prefix and a body that explains why. |
+| **G16** | Final changes committed and attributable | **MET** | 23 reviewable commits on `act/ironkeeper-foundation-01` (22 above the initial commit), each with a conventional prefix and a body that explains why. The commit count was corrected from the earlier, incorrect "17". |
 | **G17** | No unobserved background execution remains | **MET** | Every background command's terminal result was consumed. The abandoned guest driver was terminated; the two orphaned QEMU processes it left could not be signalled from the sandbox and are idle, with the evidence recorded in `linux-native.md`. |
 
-**Every mandatory gate is met.**
+**Every mandatory gate was met by this ACT's own evidence.**
+
+> **Superseded.** Independent review of this ACT found defects in the
+> mandatory CI gate authority, in strict ingestion and in contract
+> validation. The `GO_FOUNDATION` verdict recorded below was therefore
+> withheld, and the review disposition was `PARTIAL_FOUNDATION`. The
+> corrections are carried out in
+> `ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02`, whose evidence bundle is
+> `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02/`.
+>
+> The observations in this file are **not erased**. They record what was
+> measured at the time, and they remain true as observations. What
+> changes is the verdict: the gates that this file records as met were
+> not, in fact, met by the implementation as it stood.
 
 ## The final verdict
 
@@ -42,11 +55,20 @@ hidden.
 | `ENTRY_HEAD` | `c649d1aef3b80f37475c49f67efc3a4be72fadf1` |
 | `SUBJECT_HEAD` | `886a7d20a33e3f8a4c666b550a74872cf0b1a800` |
 | `CI_HEAD` | `886a7d20a33e3f8a4c666b550a74872cf0b1a800` |
-| `FINAL_HEAD` | `a8372fa8005063c9c880d8f0323ef0e36a88e61f` |
+| `FINAL_HEAD` | `aeb10ae594e695dda163a4053bdb6944b2c89ca7` |
 
-The final head was qualified independently: CI run **45907640271**
+The final head was qualified independently: CI run **45908776155** on
+`act/ironkeeper-foundation-01` and run **45909128457** on `main` both
 concluded **success** with all three jobs successful, natively on Linux
 amd64 and arm64.
+
+The earlier version of this file recorded `FINAL_HEAD` as
+`a8372fa8005063c9c880d8f0323ef0e36a88e61f` and cited run 45907640271 as
+its qualification. That was correct for the state of the repository at
+the time, but it was not the final head: the branch advanced to
+`ccd814f5`, then `70d74877`, then `aeb10ae`. The value above is the
+actual final head, and the run that qualifies it is the run that
+executed it.
 
 `CI_HEAD` equals `SUBJECT_HEAD`: the qualifying run executed exactly
 the qualified commit.

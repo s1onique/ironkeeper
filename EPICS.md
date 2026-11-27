@@ -18,7 +18,7 @@ storage device.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M0 — Foundations | Architecture, contracts, CLI, tests, CI | **done** |
+| M0 — Foundations | Architecture, contracts, CLI, tests, CI | **done** (re-established by ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02) |
 | M1 — Read-only inventory and SMART observations | Discovery, identity, SMART acquisition | planned |
 | M2 — Operational qualification daemon | Qualification profiles, assessment engine, job engine | planned |
 | M3 — Autonomous housekeeping and observability | Scheduling, metrics, production workloads | planned |
@@ -31,9 +31,11 @@ storage device.
 * **Status:** done
 * **Priority:** P0
 * **Dependencies:** none
-* **Owning ACT:** ACT-IRONKEEPER-FOUNDATION-01
+* **Owning ACT:** ACT-IRONKEEPER-FOUNDATION-01;
+  ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02 (CI gate authority)
 * **Evidence:**
-  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/`
+  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/`,
+  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02/`
 * **Acceptance criteria:** The nine subsystem boundaries are documented;
   ADRs 0001–0008 are accepted; the invariants and the threat model exist;
   proposed decisions are recorded separately from accepted ones.
@@ -52,7 +54,9 @@ storage device.
 * **Status:** done (foundation) / planned (storage schemas)
 * **Priority:** P0
 * **Dependencies:** IRK-01
-* **Owning ACT:** ACT-IRONKEEPER-FOUNDATION-01 (foundation); future ACTs
+* **Owning ACT:** ACT-IRONKEEPER-FOUNDATION-01 (foundation);
+  ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02 (numeric contract, supported
+  schema policy, report semantics, output contracts); future ACTs
   (storage contracts)
 * **Note:** The status covers the configuration, report, error and version
   contracts and their runtime enforcement. The storage observation and
@@ -67,8 +71,10 @@ storage device.
 * **Evidence:**
   [schemas/v1/](schemas/v1),
   `src/ironkeeper/contracts/`,
+  `src/ironkeeper/json/exactnumber.nim`,
   `tests/contract/schema_contract_tests.nim`,
-  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/`
+  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/`,
+  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02/`
 * **Next step:** Define the storage observation and inventory report
   contracts when IRK-03 and IRK-04 have concrete output to model. The
   numeric convention for byte counters beyond 2^53 is already decided and
@@ -274,6 +280,15 @@ unjustified diversion once native runners were identified. It is
 recorded as `SUPERSEDED_EXECUTION_ENVIRONMENT`, not as an
 implementation failure. No product code depends on it.
 
+**One orphaned QEMU process from that attempt remains** and could not be
+signalled from the sandbox: `kill -TERM` and `kill -KILL` are both
+denied for it. It is idle at 0.0% CPU and the guest image it depends on
+no longer exists, so it cannot perform any further work and cannot
+interfere with the build, the tests or the CI runs. The exact blocker
+and the operator action are recorded in
+`.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01/linux-native.md`. It is
+an **environment-cleanup item**, not a product defect.
+
 ## First real-world use case
 
 ### LAB-IRK-SAS-ADMISSION-01
@@ -312,3 +327,18 @@ archive convention is:
 * A superseded ADR is marked `Superseded by ADR-NNNN` at the top of the
   file and keeps its original text. It is never rewritten.
 * History is not removed to reduce the size of the active board.
+
+### ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02
+
+* **Status:** done
+* **Scope:** Restore the acceptance authority that independent review
+  found defective: the mandatory CI gate authority, the secret-scan gate
+  authority, the strict numeric contract, the supported schema policy,
+  the report semantics, the public output contracts, the bounded
+  ingestion and the reproducible validator qualification.
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02/`
+* **Replaces:** ACT-IRONKEEPER-FOUNDATION-01, whose `GO_FOUNDATION`
+  verdict was withheld by review with the disposition
+  `PARTIAL_FOUNDATION`. The predecessor's evidence bundle is **not**
+  erased; its contradictions are corrected in place and marked.

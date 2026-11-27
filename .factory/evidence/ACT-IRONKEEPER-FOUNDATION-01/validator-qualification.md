@@ -83,21 +83,44 @@ that the suite's remote-reference tests use.
 
 ### Results
 
-```
-$ ./suite /tmp/suite-mandatory /tmp/suite2020/remotes
-TOTAL=1300 PASSED=1300 FAILED=0
+> **Superseded.** The harness used here was an ad-hoc program that
+> existed only in the working directory, so the result could not be
+> reproduced from the repository. The qualification is now
+> **repository-owned**, with every input pinned, and the numbers below
+> have been re-measured by it. See
+> `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02/green-witnesses.md`,
+> "The validator qualification", and `docs/architecture/overview.md`,
+> "Measured conformance".
+>
+> The counts also changed. The ad-hoc harness counted only the files
+> directly under `tests/draft2020-12/` and did not recurse into the
+> optional directories. The repository-owned harness counts the whole
+> corpus, which is 1337 mandatory cases rather than 1300.
 
-$ ./suite /tmp/suite2020/tests/draft2020-12 /tmp/suite2020/remotes
-TOTAL=2374 PASSED=1843 FAILED=531
+```
+$ tools/qualify_validator.sh --suite <path>
+mandatory_total=1337
+mandatory_passed=1337
+mandatory_failed=0
+optional_total=1037
+optional_passed=1031
+optional_failed=6
+adapter_policy_rejected=312
+unexplained=0
 ```
 
 | Corpus | Total | Passed | Failed |
 |---|---|---|---|
-| Mandatory draft 2020-12 | 1300 | **1300** | **0** |
-| Mandatory + optional | 2374 | 1843 | 531 |
+| Mandatory draft 2020-12 | 1337 | **1337** | **0** |
+| Optional draft 2020-12 | 1037 | 1031 | 6 |
 
-Every one of the 531 failures is inside `optional/`. The specification
-marks that directory as optional. The failing files are:
+The six optional failures are all in `optional/ecmascript-regex.json`.
+The 312 adapter rejections are the supported schema policy at work; they
+are classified as such, and are not counted as unexplained successes or
+failures.
+
+Every failure is inside `optional/`. The specification marks that
+directory as optional. The failing files are:
 
 ```
 optional/bignum.json
@@ -188,8 +211,9 @@ Error: unhandled exception: field 'fnum' is not accessible ...
 ### Mitigation
 
 Ironkeeper does not expose this behaviour. The adapter in
-`src/ironkeeper/contracts/validator.nim` applies a two-stage, fail-closed
-protocol.
+`src/ironkeeper/contracts/validator.nim` applies a fail-closed protocol
+in three stages: meta-validation, the supported schema policy, and the
+reference policy.
 
 **Stage 1 — meta-validation.** The schema document is validated against
 the bundled Draft 2020-12 metaschema *before* it is used to validate
@@ -214,7 +238,11 @@ Pointer nor the bundled metaschema URI is rejected before validation is
 attempted, so resolution can never reach the network.
 
 The regression witness for this is
-`tests/unit/validator_tests.nim`:
+`tests/unit/validator_tests.nim`. It exercises the **real adapter**, not
+the library directly: the witness calls `validateAgainst`, so the
+meta-validation gate, the supported schema policy and the reference
+policy are all on the path. The upstream defect was separately
+reproduced against the library directly, as recorded above.
 
 ```nim
 let badExclusive = parseJson("""{"maximum": 3.0, "exclusiveMaximum": true}""")

@@ -21,12 +21,20 @@ toolchain is the pinned one below.
 
 | Component | Version | Notes |
 |---|---|---|
-| Nim compiler | **2.4.2** | Official `linux_x64` distribution |
-| Nimble | 0.20.1 | Bundled with the distribution |
+| Nim compiler | **2.4.2** | Official distribution, per architecture, pinned by sha256 |
+| Nimble | 0.26.2 | Bundled with the distribution |
 | Memory manager | **ORC** | Set explicitly: `--mm:orc` |
-| C compiler | gcc 13.2.1 (Alpine `x86_64`) | Used for the Linux builds |
-| Linux kernel | 6.6.49-0-virt (Alpine 3.20.3) | Guest in the Linux VM |
-| Git | 2.45.4 (Alpine) | Guest |
+| C compiler | gcc 13.x (Ubuntu 24.04) | The native CI runners |
+| Kernel | Ubuntu 24.04 | The native CI runners |
+| Git | 2.43.x (Ubuntu 24.04) | The native CI runners |
+
+> **Corrected.** The authoritative Linux builds ran **natively on
+> GitHub-hosted `ubuntu-24.04` (amd64) and `ubuntu-24.04-arm` (arm64)
+> runners**. The rows above previously named an Alpine guest, which was
+> the abandoned local virtualisation approach. That approach was
+> superseded and is not the authoritative environment; the toolchain
+> rows now name the environment that actually produced the qualified
+> artefacts.
 
 ### Why 2.4.2
 
@@ -93,8 +101,10 @@ requires "nim >= 2.2.10"
 requires "jschema == 0.1.0"
 ```
 
-Nimble's own lock file records the resolved artefact. The lock file is
-committed, so that a build resolves the same dependency every time.
+There is **no committed `nimble.lock`**, and none is claimed. The
+dependency is resolved at an exact commit with its **tree digest**
+verified, and that exact-commit resolution *is* the lock. The claim that
+a lock file was committed was false.
 
 ## Reproducible commands
 
@@ -111,8 +121,19 @@ cannot drift apart.
 
 ## Cross-compilation
 
-A Linux amd64 cross-compilation path was established and verified during
-the ACT:
+> **Corrected.** The authoritative Linux build is **native execution on
+> GitHub-hosted runners**, for both architectures:
+> `ubuntu-24.04` for amd64 and `ubuntu-24.04-arm` for arm64. Neither
+> result comes from a cross-compiled artefact, and no cross-architecture
+> emulation is used. An arm64 result is a genuine arm64 execution.
+>
+> The cross-compilation recipe below was an experiment during the
+> abandoned local virtualisation approach. It is retained as a record of
+> what was tried; it is **not** the authoritative build path, and the
+> earlier claim that "the authoritative arm64 build is the
+> cross-compilation in CI" was wrong. The arm64 build is native.
+
+The recipe that was tried:
 
 ```sh
 nim c --os:linux --cpu:amd64 --cc:gcc \
@@ -121,7 +142,4 @@ nim c --os:linux --cpu:amd64 --cc:gcc \
   -o:p_amd64 p.nim
 ```
 
-The resulting artefact was a Linux ELF x86-64 executable. This path is a
-convenience; the authoritative Linux build is the native one inside the
-Linux guest, and the authoritative arm64 build is the cross-compilation
-in CI.
+A cross-compiled artefact is never reported as "executed".

@@ -104,6 +104,13 @@ detected. The same approach is used for the Nim toolchain, whose
 published `sha256` is verified, and for the `gitleaks` binary, whose
 official release checksum is verified.
 
+There is **no committed `nimble.lock`**, and none is claimed. The
+dependency is not resolved through the Nimble package registry, so
+Nimble produces no lock file for it. The exact-commit resolution with a
+verified tree digest **is** the lock, and it is the single
+dependency-resolution mechanism in the project: the CI workflow and
+`tools/qualify_validator.sh` perform the same resolution.
+
 ## Licence of the Nimble manifest version
 
 Nimble accepts only a version made of numbers and dots. The manifest

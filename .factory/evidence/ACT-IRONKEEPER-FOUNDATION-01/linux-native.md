@@ -95,12 +95,58 @@ identified by their command lines:
 | the QEMU instance started by that driver | terminated |
 | a second, earlier QEMU instance | terminated |
 
+### The unresolved orphan — an environment-cleanup finding
+
 A further orphaned QEMU instance from an earlier attempt could not be
-signalled: the sandbox denies `kill` to processes that were started by
-a previous tool invocation, and the process had already been re-parented
-to init. It was left in place rather than fought with, and the guest
-image it depended on was deleted, so it cannot perform any further
-work. It consumes no CPU while idle.
+signalled. It was left in place rather than fought with, and the guest
+image it depended on was deleted, so it cannot perform any further work.
+
+This amendment re-verified that finding, and recorded the exact blocker
+for the operator.
+
+**Observed at the time of this ACT:**
+
+```
+$ ps aux | grep qemu-system-x86_64
+chistyakov 70203 0.0 ?? 12:46AM /nix/store/gd5jx2ldmky6h0aijflln2mw1v9prq4f-qemu-10.2.4/bin/qemu-system-x86_64 -machine q35 -accel tcg -smp 4 -m 3072 -nographic -no-reboot -drive file=/tmp/irk-toolchain/alpine-virt-3.20.3-x86_64.iso,format=raw,if=virtio,media=cdrom -virtfs local,path=/Volumes/.../ironkeeper,mount_tag=repo,security_model=none -virtfs local,path=/tmp/irkvm/payload,mount_tag=payload,security_model=none -virtfs local,path=/tmp/irkvm/toolshare,mount_tag=toolshare,security_model=none -netdev user,id=net0 -device virtio-net-pci,netid=net0 -chardev socket,id=ser0,path=/tmp/irkvm/console.sock,server=on,wait=off -serial chardev:ser0 -monitor none
+
+$ ps -p 70203 -o pid=,%cpu=,state=
+70203   0.0
+
+$ ls -la /tmp/irk-toolchain/alpine-virt-3.20.3-x86_64.iso
+ls: cannot access '/tmp/irk-toolchain/alpine-virt-3.20.3-x86_64.iso': No such file or directory
+```
+
+**The exact blocker.** Two targeted, single-PID termination attempts
+were made. Both were denied by the sandbox:
+
+```
+$ kill -TERM 70203
+zsh:kill:1: kill 70203 failed: operation not permitted
+
+$ kill -KILL 70203
+zsh:kill:1: kill 70203 failed: operation not permitted
+```
+
+The process had been re-parented to `init` and was started by a previous
+tool invocation, so the sandbox denies `kill` to it. No broad
+process-killing command was used, and no further local virtualisation
+work was attempted.
+
+**Why this is not a blocker for the product.** The orphan is idle at
+0.0% CPU, and the guest image it depends on **no longer exists**, so it
+cannot perform any further work. It does not hold a device, it does not
+touch the repository, and it cannot interfere with the build, the test
+suite or the CI runs. It is an environment-cleanup item for the
+operator, not a product defect, and it is recorded separately from the
+product qualification.
+
+**Operator action.** Terminate the process by PID from a context with
+the necessary entitlement:
+
+```sh
+kill -TERM 70203   # then kill -KILL 70203 if it does not exit
+```
 
 The remaining temporary state is the pinned toolchain and the compiler
 caches, which are build inputs rather than virtualization artefacts.
