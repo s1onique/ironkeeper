@@ -33,6 +33,14 @@ The storage gates that were added:
 |---|---|---|---|
 | `45969499328` | `68ee056` | **success** | secret scan, build and test (amd64), build and test (arm64), validator qualification |
 | `45970216843` | `400360e3a0c0ebb91199c35a0c16850f05578f68` | **success** | secret scan, build and test (amd64), build and test (arm64), validator qualification |
+| `45971329094` | `6e00e91` | **success** | secret scan, build and test (amd64), build and test (arm64), validator qualification |
+
+The run `45971329094` executed the **implementation subject** `6e00e91`,
+which is the commit that carries the whole implementation, the contracts,
+the tests, the gates and the documentation. The commits that follow it
+change only the evidence documents; the implementation is unchanged, and
+the CI run of such a commit is reported in the receipt as a
+documentation-only follow-up.
 
 The final run is the authoritative one for the subject. The job
 conclusions were read from the run itself:
