@@ -22,3 +22,19 @@ toolchain failed at the verification.
 
 The preceding authentication limitation is historical. It is not
 investigated again in this ACT.
+
+## The run of the corrected production verifier
+
+Run **45934831421** executed the commit
+`25a60ebf2b71a82acd6aaac05f8a5cafa04d08da`:
+
+| Job | Conclusion | Detail |
+|---|---|---|
+| secret scan | success | — |
+| validator qualification | success | the authoritative native qualification executed and passed |
+| build and test (amd64) | failure | at "Check the CI toolchain bootstrap" |
+| build and test (arm64) | failure | at "Check the CI toolchain bootstrap" |
+
+The production toolchain verification passed on both architectures and in
+the validator job. The only remaining defect was in the regression
+fixture itself, which is corrected by this ACT.

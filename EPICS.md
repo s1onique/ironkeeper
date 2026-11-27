@@ -369,11 +369,16 @@ archive convention is:
   regression witness and prove it non-vacuous.
 * **Evidence:**
   `.factory/evidence/ACT-IRONKEEPER-M0-CI-HANDOFF-01/`
-* **Subject:** `ea1d5d110e65a21e130daf6d3c9b3c156a986902`
+* **Subject:** `3ad85446cd9561e9d9c5e16deb817aabb855dd6d`
+  (the executable subject; the closure documents are a later commit and
+  carry their own identity)
 * **Remote evidence:** runs 45934380741 and 45934374904 executed the
   entry commit and failed at the step "Verify the pinned toolchain" in
   the amd64, arm64 and validator-qualification jobs; the secret scan
-  succeeded.
+  succeeded. Run 45934831421 executed the corrected verifier: the
+  production toolchain verification, the secret scan and the
+  authoritative native validator qualification all passed, and only the
+  regression fixture failed - which this ACT corrects.
 * **Open:** the subject has no CI run; one authenticated push preflight
   was denied. The operator action is
   `git push origin act/ironkeeper-foundation-01-amendment-03`.

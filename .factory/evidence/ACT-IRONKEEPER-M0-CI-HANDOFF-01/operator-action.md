@@ -1,6 +1,6 @@
 # The operator action
 
-The subject `ea1d5d110e65a21e130daf6d3c9b3c156a986902` is committed
+The subject `3ad85446cd9561e9d9c5e16deb817aabb855dd6d` is committed
 locally. One authenticated push preflight was performed:
 
 ```sh
@@ -31,6 +31,10 @@ terminal success:
   `qualification_authoritative=true`,
   `qualification_classification=pinned-verified`,
   `inputs_digest_verified=true` and a terminal product verdict.
+
+The previous run of this branch already reached that state for the
+qualification and the secret scan; only the regression fixture failed.
+The corrected subject changes the fixture alone.
 
 A green job whose qualification step was skipped does not close M0.
 The run id and its conclusion must be recorded against the subject head.

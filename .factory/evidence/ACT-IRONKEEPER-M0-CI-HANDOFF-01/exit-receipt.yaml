@@ -1,7 +1,7 @@
 ACT_ID: ACT-IRONKEEPER-M0-CI-HANDOFF-01
 ENTRY_HEAD: 9e1d49ce1ac0fdc8d8171ab99f6f23eafa0fcf52
-SUBJECT_HEAD: ea1d5d110e65a21e130daf6d3c9b3c156a986902
-FINAL_HEAD: ea1d5d110e65a21e130daf6d3c9b3c156a986902
+SUBJECT_HEAD: 3ad85446cd9561e9d9c5e16deb817aabb855dd6d
+FINAL_HEAD: 3ad85446cd9561e9d9c5e16deb817aabb855dd6d
 # FINAL_HEAD is the head of the executable subject at the time this
 # receipt was written. The closure documents are added by the commit that
 # carries this file; that commit cannot contain its own hash, so the two
@@ -84,21 +84,70 @@ NON_VACUITY: |
     passed: 23  failed: 0
   The witness therefore detects the defect it exists to detect.
 
-CI_HEAD: NONE - the subject has not been pushed
-CI_RUN_ID: NONE - the subject has not been pushed
-CI_CONCLUSION: NONE - the subject has not been pushed
-LINUX_AMD64_NATIVE: UNMET - the subject has no CI run
-LINUX_ARM64_NATIVE: UNMET - the subject has no CI run
-SECRET_SCAN: UNMET - the subject has no CI run
+CI_HEAD: 25a60ebf2b71a82acd6aaac05f8a5cafa04d08da
+CI_RUN_ID: 45934831421
+CI_CONCLUSION: |
+  failure - the last observed remote run. It executed the commit
+  25a60ebf2b71a82acd6aaac05f8a5cafa04d08da on the branch
+  act/ironkeeper-foundation-01-amendment-03 and reached a terminal
+  conclusion:
+    secret scan              -> success
+    validator qualification  -> success
+    build and test (amd64)   -> failure at "Check the CI toolchain bootstrap"
+    build and test (arm64)   -> failure at "Check the CI toolchain bootstrap"
+  The corrected subject 3ad85446cd9561e9d9c5e16deb817aabb855dd6d has no
+  CI run of its own yet.
+LINUX_AMD64_NATIVE: |
+  UNMET for the corrected subject - it has no CI run. The last observed
+  run passed the native amd64 build and the three test suites and failed
+  only at the regression fixture, which this ACT corrects.
+LINUX_ARM64_NATIVE: |
+  UNMET for the corrected subject - it has no CI run. The last observed
+  run passed the native arm64 build and the three test suites and failed
+  only at the regression fixture, which this ACT corrects.
+SECRET_SCAN: |
+  UNMET for the corrected subject - it has no CI run. The last observed
+  run passed the secret scan.
 AUTHORITATIVE_VALIDATOR_QUALIFICATION: |
-  Not executed for the subject: the subject has not been pushed, and the
-  upstream validator qualification is deliberately not repeated locally
-  in this ACT, because no validator, corpus, schema or runtime
-  application behaviour changes here. The qualification of the entry
-  commit was never reached either: runs 45934380741 and 45934374904
-  failed at the preceding step, "Verify the pinned toolchain". The full
-  native GitHub Actions workflow is the acceptance authority for this
-  step.
+  The native authoritative qualification **passed** in the last observed
+  remote run 45934831421 at commit 25a60eb: the "validator qualification"
+  job succeeded, which means the qualification step executed, verified
+  the pinned inputs and reported its terminal product verdict; the job
+  requires qualification_authoritative=true and
+  qualification_classification=pinned-verified, and it refuses a
+  non-authoritative result.
+  The corrected subject 3ad85446 changes only the regression fixture, so
+  no validator, corpus, schema or runtime application behaviour changes
+  and the qualification input is identical. Its own run is still
+  required for the acceptance, and the upstream qualification is
+  deliberately not repeated locally.
+
+REGRESSION_FIXTURE_CORRECTION: |
+  Defect, as observed in run 45934831421: both build jobs failed at
+  "Check the CI toolchain bootstrap" with 22 of 23 checks passing. The
+  failing assertion was "the verification names the missing package
+  manager". The production verifier behaved correctly: it refused the
+  unrelated Nimble and reported "nimble does not resolve to the intended
+  toolchain". The *fixture* was wrong: it prepended a synthetic toolchain
+  without a Nimble to an ambient PATH that already carried the real
+  Nimble, so the verifier found an unrelated Nimble and the fixture
+  expected the absent-Nimble diagnostic.
+  Correction: only tools/gate_ci_bootstrap.sh changed. The two negative
+  scenarios are controlled - the PATH they use excludes every directory
+  that provides a nimble, so neither depends on what the host has
+  installed:
+    1. Nimble genuinely absent: the synthetic toolchain has no nimble
+       and the controlled PATH has none either; the verification must
+       exit nonzero and name the absent package manager.
+    2. An unrelated nimble present: a synthetic fallback outside the
+       intended toolchain; the verification must exit nonzero and name
+       the unrelated package manager.
+  The nonzero exit-status assertion is preserved for both scenarios, and
+  every production-path, exact-version and executable-identity check is
+  preserved.
+  Verification: the complete gate was run twice - with no ambient nimble
+  (26 of 26 checks pass, exit 0) and with an unrelated ambient nimble on
+  PATH (26 of 26 checks pass, exit 0).
 
 TRACKED_DIRT: none
 PATCH_HYGIENE: |
