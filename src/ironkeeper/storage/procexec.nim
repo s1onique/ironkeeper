@@ -274,6 +274,9 @@ proc runTool*(req: ExecRequest): ExecResult =
   # file and stderr takes its place.
   var fds: array[2, TPollfd]
   var streamOf: array[2, int]   # 0 is the standard output, 1 the error output
+  var graceFds: array[2, TPollfd]
+  var graceStream: array[2, int]
+  var truncated = false
 
   while true:
     let now = getMonoTime()
@@ -347,6 +350,52 @@ proc runTool*(req: ExecRequest): ExecResult =
       sleep(10)
 
     if outTruncated or errTruncated:
+      # One stream reached its bound. The **other** stream is drained
+      # within a short grace period, so that the content that the tool
+      # already produced is preserved and the two streams stay separate.
+      # The grace period is bounded: the child is terminated afterwards.
+      truncated = true
+      let grace = getMonoTime() + initDuration(milliseconds = 200)
+      while (outOpen or errOpen) and getMonoTime() < grace:
+        var graceCount = 0
+        if outOpen:
+          graceFds[graceCount] = TPollfd(fd: outPipe[0], events: int16(POLLIN))
+          graceStream[graceCount] = 0
+          inc graceCount
+        if errOpen:
+          graceFds[graceCount] = TPollfd(fd: errPipe[0], events: int16(POLLIN))
+          graceStream[graceCount] = 1
+          inc graceCount
+        if graceCount == 0:
+          break
+        let ready = poll(addr graceFds[0], Tnfds(graceCount), 10)
+        if ready <= 0:
+          continue
+        for i in 0 ..< graceCount:
+          if (graceFds[i].revents.int and (POLLIN.int or POLLHUP.int or
+              POLLERR.int)) == 0:
+            continue
+          let isOut = graceStream[i] == 0
+          let n = posix.read(graceFds[i].fd, addr buffer[0], buffer.len)
+          if n <= 0:
+            if isOut: outOpen = false else: errOpen = false
+            continue
+          # The content beyond the bound is discarded: the capture of that
+          # stream is complete up to its bound and no further.
+          if isOut:
+            let room = maxOut - stdoutBuf.len
+            if room > 0:
+              let take = min(n, room)
+              var chunk = newString(take)
+              copyMem(addr chunk[0], addr buffer[0], take)
+              stdoutBuf.add chunk
+          else:
+            let room = maxErr - stderrBuf.len
+            if room > 0:
+              let take = min(n, room)
+              var chunk = newString(take)
+              copyMem(addr chunk[0], addr buffer[0], take)
+              stderrBuf.add chunk
       break
 
   # ---- terminate the group if necessary ----------------------------------

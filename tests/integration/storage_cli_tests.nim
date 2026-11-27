@@ -97,6 +97,23 @@ proc runSuite*(): int =
   if not fileExists(exe):
     return t.finish()
 
+  proc copyTree(source: string, target: string) =
+    ## Copy a directory tree.
+    ##
+    ## The permissions matter: the controlled tools of the fixture are
+    ## shell scripts, and a copy that loses the executable bit would not
+    ## run. The copy is therefore delegated to the platform tool, which
+    ## carries the permissions and the symbolic links over.
+    let process = startProcess("/bin/cp", args = @["-R", source, target])
+    var output = ""
+    if process.outputStream != nil:
+      output = process.outputStream.readAll()
+    let code = process.waitForExit()
+    process.close()
+    if code != 0:
+      raise newException(IOError,
+        "the fixture tree could not be copied: " & output)
+
   # ---- the passive inventory ---------------------------------------------
   var r = runBinary(@["inventory", "list", "--json"], storageEnv())
   t.checkEq("the passive inventory exits successfully", r.exitCode, 0)
@@ -141,7 +158,7 @@ proc runSuite*(): int =
   # A passive command must never create it.
   let markerDir = getTempDir() / "ironkeeper-passive-marker"
   removeDir(markerDir)
-  copyDir(fixtureRoot() / "tools-marker", markerDir)
+  copyTree(fixtureRoot() / "tools-marker", markerDir)
   let marker = markerDir / "executed.marker"
   var markerEnv = storageEnv()
   markerEnv["IRONKEEPER_TEST_TOOL_DIR"] = markerDir
@@ -303,14 +320,6 @@ proc runSuite*(): int =
   # controlled tool removes or replaces the synthetic device while it
   # runs. The copy is therefore made per witness, and the repository
   # fixture is never modified.
-  proc copyTree(source: string, target: string) =
-    ## Copy a directory tree.
-    ##
-    ## The symbolic links of the tree are reproduced as symbolic links
-    ## with the same target, so that the copied tree behaves like the
-    ## original one.
-    copyDir(source, target)
-
   proc mutableFixture(): string =
     ## A fresh copy of the synthetic fixture tree.
     let target = getTempDir() / "ironkeeper-mutable-fixture"
@@ -392,7 +401,7 @@ proc runSuite*(): int =
   if fileExists(production):
     let prodMarkerDir = getTempDir() / "ironkeeper-production-marker"
     removeDir(prodMarkerDir)
-    copyDir(fixtureRoot() / "tools-marker", prodMarkerDir)
+    copyTree(fixtureRoot() / "tools-marker", prodMarkerDir)
     let prodMarker = prodMarkerDir / "executed.marker"
     var prodEnv = initTable[string, string]()
     prodEnv["IRONKEEPER_TEST_TOOL_DIR"] = prodMarkerDir
@@ -419,7 +428,7 @@ proc runSuite*(): int =
     # witness would pass on a binary that simply failed.
     let controlMarkerDir = getTempDir() / "ironkeeper-control-marker"
     removeDir(controlMarkerDir)
-    copyDir(fixtureRoot() / "tools-marker", controlMarkerDir)
+    copyTree(fixtureRoot() / "tools-marker", controlMarkerDir)
     var controlEnv = prodEnv
     controlEnv["IRONKEEPER_TEST_TOOL_DIR"] = controlMarkerDir
     discard runBinary(@["device", "inspect", "--wwn", "5000c500a1b2c3d4",

@@ -247,7 +247,7 @@ proc reconcile*(inv: var Inventory) =
       identity.confidence = icUnresolved
 
     if identity.conflicts.len > 0:
-      identity.confidence = icProbable
+      identity.confidence = icAmbiguous
 
     inv.devices[i].identity = identity
 
