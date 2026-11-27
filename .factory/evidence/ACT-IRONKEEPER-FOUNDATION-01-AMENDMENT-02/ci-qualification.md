@@ -203,6 +203,7 @@ commit. No run is identified at a commit it did not execute.
 | **45912585631** | **`b6f8142e`** | **success** | **the qualified executable subject** |
 | **45912607978** | **`2bb64bdd`** | **failure** | the CI negative witness |
 | **45915464716** | **`c4fee46d`** | **success** | the final head, evidence-only diff |
+| **45915748084** | **`bc3d425a`** | **success** | the final head, after the last evidence commit |
 
 ### The run on the final head
 

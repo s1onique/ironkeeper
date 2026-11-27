@@ -21,7 +21,7 @@
 | **A15** | Native arm64 result independently classified | **MET** | `ci-qualification.md`: run **45912585631**, job `build and test (arm64)`, runner `GitHub Actions 1000018960`, conclusion **success**, native execution on `ubuntu-24.04-arm`. The final head is independently confirmed by run **45915464716**, job `build and test (arm64)`, runner `GitHub Actions 1000018969`, conclusion **success**. No cross-architecture emulation was used, so the result is a genuine arm64 execution. The predecessor's claim that the authoritative arm64 build was a cross-compilation is corrected. |
 | **A16** | No physical hardware operations | **MET** | The application opens no device, runs no storage tool and opens no socket. `ironkeeper daemon` returns an explicit unsupported-operation result. The amendment touched no hardware and implemented no SMART acquisition. |
 | **A17** | Original MIT licence preserved | **MET** | `shasum -a 256 LICENSE` is `307c6257a17d9d9c7f0a0d5d321fc1606fa53ef1e9da305b0d3012218f63393c`, unchanged from the entry commit. |
-| **A18** | Final implementation committed | **MET** | The implementation is committed on `act/ironkeeper-foundation-01-amendment-02` and pushed. The post-qualification diff is confined to non-executable evidence and documentation; see `post-qualification-diff.md`. The final head was independently run: **45915464716** at `c4fee46d`, conclusion **success**. |
+| **A18** | Final implementation committed | **MET** | The implementation is committed on `act/ironkeeper-foundation-01-amendment-02` and pushed. The post-qualification diff is confined to non-executable evidence and documentation; see `post-qualification-diff.md`. The final head was independently run twice: **45915464716** at `c4fee46d` and **45915748084** at `bc3d425a`, both conclusion **success**, with the amd64, arm64 and secret-scan jobs all successful. |
 | **A19** | All outstanding terminal observations classified | **MET** | `remaining-limitations.md`: every observation is classified as **resolved**, **recorded as a known limitation**, or **an environment-cleanup item for the operator**. The orphaned QEMU process is the only environment-cleanup item, and it cannot interfere with subsequent testing. |
 | **A20** | Epic board and acceptance evidence updated | **MET** | `EPICS.md` carries the amendment's board entry, the corrected M0 status, the IRK-01 and IRK-02 ownership, and the orphaned-process finding. This file is the acceptance evidence. |
 
@@ -35,7 +35,7 @@
 | `SUBJECT_HEAD` | `b6f8142e6d17910de3ac92cb8523a9338057b33b` |
 | `CI_HEAD` | `b6f8142e6d17910de3ac92cb8523a9338057b33b` |
 | `CI_RUN_ID` | `45912585631` |
-| `FINAL_HEAD` | `c4fee46dbdba89f1e872dba79ccfcd628684e59f` (plus the evidence-only commit that records this file) |
+| `FINAL_HEAD` | `bc3d425a58e740a0ebba9a15afbc44d0c4807ac5` |
 
 `CI_HEAD` equals `SUBJECT_HEAD`: the qualifying run executed exactly the
 qualified commit.
