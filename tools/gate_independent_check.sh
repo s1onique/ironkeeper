@@ -143,11 +143,16 @@ record crosscheck-observation "$VALIDATOR" --schemafile schemas/v1/observation.s
 EVIDENCE_PARENT="$OUT_DIR/evidence"
 rm -rf "$EVIDENCE_PARENT"
 mkdir -p "$EVIDENCE_PARENT"
-generate generate-evidence-manifest "$EVIDENCE_PARENT/manifest.json" 0 \
+# The command writes the **observation document** to stdout and the
+# manifest into the bundle directory. The two are therefore written to
+# different files, and the manifest is looked up inside the bundle
+# directory only.
+generate generate-evidence-observation "$EVIDENCE_PARENT/observation.json" 0 \
   env "${STORAGE_ENV[@]}" "$STORAGE_BIN" device inspect \
     --wwn 5000c500a1b2c3d4 --smart --capacity --allow-wake \
     --evidence-dir "$EVIDENCE_PARENT" --json
-EVIDENCE_MANIFEST="$(find "$EVIDENCE_PARENT" -name manifest.json -type f | head -1)"
+EVIDENCE_MANIFEST="$(find "$EVIDENCE_PARENT" -mindepth 2 -name manifest.json \
+  -type f | sort | head -1)"
 if [ -z "$EVIDENCE_MANIFEST" ]; then
   echo "gate: FAIL generate-evidence-manifest: no manifest was produced" >&2
   FAILED+=("generate-evidence-manifest")
