@@ -110,6 +110,23 @@ generate generate-config-report "$OUT_DIR/config-report.json" 0 \
 generate generate-version "$OUT_DIR/version.json" 0 \
   "$ROOT/build/ironkeeper" version --json
 
+# The generated storage documents are validated independently as well. The
+# documents are produced by the binary against the repository-owned
+# synthetic fixture tree, so the check needs no storage device.
+STORAGE_ENV=(IRONKEEPER_SYSFS_ROOT="$ROOT/tests/fixtures/storage/sys"
+             IRONKEEPER_DEV_ROOT="$ROOT/tests/fixtures/storage/dev"
+             IRONKEEPER_UDEV_ROOT="$ROOT/tests/fixtures/storage/run/udev/data"
+             IRONKEEPER_TEST_TOOL_DIR="$ROOT/tests/fixtures/storage/tools")
+
+generate generate-inventory "$OUT_DIR/inventory.json" 0 \
+  env "${STORAGE_ENV[@]}" "$ROOT/build/ironkeeper" inventory list --json
+record crosscheck-inventory "$VALIDATOR" --schemafile schemas/v1/inventory.schema.json "$OUT_DIR/inventory.json"
+
+generate generate-observation "$OUT_DIR/observation.json" 0 \
+  env "${STORAGE_ENV[@]}" "$ROOT/build/ironkeeper" device inspect \
+    --wwn 5000c500a1b2c3d4 --smart --capacity --allow-wake --json
+record crosscheck-observation "$VALIDATOR" --schemafile schemas/v1/observation.schema.json "$OUT_DIR/observation.json"
+
 if [ "${#FAILED[@]}" -eq 0 ]; then
   # The output of `config validate --json` is a *report*, so it is
   # validated against the report contract.

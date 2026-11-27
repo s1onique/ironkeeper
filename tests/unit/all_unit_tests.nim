@@ -10,6 +10,7 @@ import config_semantics_tests
 import outputbounds_tests
 import qualification_tests
 import schemapolicy_tests
+import storage_tests
 import strictjson_tests
 import validator_tests
 
@@ -21,6 +22,7 @@ proc main(): int =
   failures += outputbounds_tests.runSuite()
   failures += qualification_tests.runSuite()
   failures += schemapolicy_tests.runSuite()
+  failures += storage_tests.runSuite()
   failures += strictjson_tests.runSuite()
   failures += validator_tests.runSuite()
   if failures == 0:

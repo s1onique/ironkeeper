@@ -1,0 +1,73 @@
+#!/bin/sh
+# A controlled `smartctl` for the test harness.
+#
+# It emits a synthetic SCSI verbose JSON response and exits with the
+# status that the fixture describes. It never touches a device.
+case "$*" in
+  *sdc*)
+    # A device that reports a failing condition: exit bit 3.
+    cat <<'JSON'
+{"json_format_version": [1, 0],
+ "smartctl": {"version": [7, 5], "exit_status": 8},
+ "model_name": "ST900MM0006",
+ "serial_number": "SEAGATE-ST900MM0006",
+ "firmware_version": "0004",
+ "smart_status": {"passed": false},
+ "scsi_error_counter_log": {"read_errors_corrected": 120, "read_errors_total": 3,
+   "write_errors_corrected": 0, "write_errors_total": 0,
+   "verify_errors_corrected": 0, "verify_errors_total": 0,
+   "non_medium_error_count": 2, "correction_algorithm_invocations": 118},
+ "scsi_grown_defect_list": {"count": 17},
+ "temperature": {"current": 41, "drive_trip": {"min": 68}},
+ "power_on_time": {"hours": 42015},
+ "rotation_rate": 10000,
+ "start_stop_cycle_counter": {"cycle_count": 812},
+ "load_unload_cycle_counter": {"cycle_count": 120034}}
+JSON
+    exit 8
+    ;;
+  *nvme0n1*)
+    # An NVMe namespace whose counters exceed 64 bits.
+    cat <<'JSON'
+{"json_format_version": [1, 0],
+ "smartctl": {"version": [7, 5], "exit_status": 0},
+ "model_name": "Samsung SSD 970 EVO Plus",
+ "serial_number": "S4EUNM0R000000A",
+ "firmware_version": "2B2QEXM7",
+ "nvme_smart_health_information_log": {
+   "critical_warning": 0, "temperature": 312, "available_spare": 100,
+   "available_spare_threshold": 10, "percentage_used": 3,
+   "data_units_read": "18446744073709551616",
+   "data_units_read_raw": "0x10000000000000000",
+   "data_units_written": "9007199254740993",
+   "host_read_commands": "18446744073709551615",
+   "host_write_commands": 123456789,
+   "power_cycles": 42, "power_on_hours": 9001,
+   "unsafe_shutdowns": 3, "media_errors": 0,
+   "num_err_log_entries": 7}}
+JSON
+    exit 0
+    ;;
+  *)
+    # A healthy enterprise SAS HDD.
+    cat <<'JSON'
+{"json_format_version": [1, 0],
+ "smartctl": {"version": [7, 5], "exit_status": 0},
+ "model_name": "ST900MM0006",
+ "serial_number": "SEAGATE-ST900MM0006",
+ "firmware_version": "0004",
+ "smart_status": {"passed": true},
+ "scsi_error_counter_log": {"read_errors_corrected": 0, "read_errors_total": 0,
+   "write_errors_corrected": 0, "write_errors_total": 0,
+   "verify_errors_corrected": 0, "verify_errors_total": 0,
+   "non_medium_error_count": 0, "correction_algorithm_invocations": 0},
+ "scsi_grown_defect_list": {"count": 0},
+ "temperature": {"current": 33, "drive_trip": {"min": 68}},
+ "power_on_time": {"hours": 39000},
+ "rotation_rate": 10000,
+ "start_stop_cycle_counter": {"cycle_count": 700},
+ "load_unload_cycle_counter": {"cycle_count": 120000}}
+JSON
+    exit 0
+    ;;
+esac

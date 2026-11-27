@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/device.schema.json",
+  "title": "Ironkeeper device record",
+  "description": "One discovered block device. The record describes what the kernel and udev reported; it carries no assessment and no admission verdict. An observation that the device did not provide is absent, never a zero.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kernel_name",
+    "device_class",
+    "transport",
+    "identity"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this device contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "kernel_name": {
+      "description": "The kernel name of the block device, for example `sdb`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "device_class": {
+      "description": "The class of the device. Only `physical` devices are active-interrogation targets.",
+      "type": "string",
+      "enum": [
+        "physical",
+        "partition",
+        "device_mapper",
+        "raid",
+        "loop",
+        "ram",
+        "optical",
+        "virtual",
+        "unknown"
+      ]
+    },
+    "transport": {
+      "description": "The transport the device is attached through.",
+      "type": "string",
+      "enum": ["sas", "sata", "nvme", "scsi", "unknown"]
+    },
+    "major": {
+      "description": "The major device number.",
+      "type": "string",
+      "maxLength": 16
+    },
+    "minor": {
+      "description": "The minor device number.",
+      "type": "string",
+      "maxLength": 16
+    },
+    "sysfs_path": {
+      "description": "The sysfs path of the device.",
+      "type": "string",
+      "maxLength": 4096
+    },
+    "vendor": {
+      "description": "The reported vendor. Absent when the device did not report one.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "model": {
+      "description": "The reported model. Absent when the device did not report one.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "serial": {
+      "description": "The reported serial number. A weak identifier on its own.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "firmware": {
+      "description": "The reported firmware revision.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "wwn": {
+      "description": "The observed world-wide name, in the form the source reported it.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "capacity_bytes": {
+      "description": "The capacity in bytes, as a canonical decimal string. A capacity beyond 2^53 bytes keeps every digit.",
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "logical_block_size": {
+      "description": "The logical block size in bytes.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "physical_block_size": {
+      "description": "The physical block size in bytes.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "rotational": {
+      "description": "Whether the device reports itself as rotational. Absent when the kernel did not say.",
+      "type": "boolean"
+    },
+    "paths": {
+      "description": "The current access paths of the device.",
+      "type": "array",
+      "maxItems": 64,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "aliases": {
+      "description": "The persistent aliases of the device.",
+      "type": "array",
+      "maxItems": 64,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "identity": {
+      "description": "The reconciled identity of the device.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confidence", "identifiers"],
+      "properties": {
+        "confidence": {
+          "description": "How much authority the identity carries.",
+          "type": "string",
+          "enum": ["authoritative", "probable", "ambiguous", "unresolved"]
+        },
+        "identifiers": {
+          "description": "The observed persistent identifiers.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "namespace", "value", "original", "source"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "scsi_wwn",
+                  "ata_wwn",
+                  "nguid",
+                  "eui64",
+                  "nvme_uuid",
+                  "serial",
+                  "disk_sequence_number"
+                ]
+              },
+              "namespace": {
+                "description": "The object the identifier names.",
+                "type": "string",
+                "enum": ["logical_unit", "namespace", "controller"]
+              },
+              "value": {
+                "description": "The canonical form of the identifier.",
+                "type": "string",
+                "maxLength": 512
+              },
+              "original": {
+                "description": "The identifier exactly as it was observed.",
+                "type": "string",
+                "maxLength": 512
+              },
+              "source": {
+                "description": "Where the identifier was observed.",
+                "type": "string",
+                "maxLength": 256
+              }
+            }
+          }
+        },
+        "conflicts": {
+          "description": "The contradictory identity observations.",
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 1024 }
+        },
+        "duplicate_serial": {
+          "description": "True when another discovered device carries the same serial number.",
+          "type": "boolean"
+        }
+      }
+    },
+    "findings": {
+      "description": "The findings that explain the classification and the exclusions.",
+      "type": "array",
+      "maxItems": 128,
+      "items": { "type": "string", "maxLength": 1024 }
+    }
+  }
+}

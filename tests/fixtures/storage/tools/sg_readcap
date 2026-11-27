@@ -1,0 +1,23 @@
+#!/bin/sh
+# A controlled `sg_readcap` for the test harness.
+#
+# It emits a synthetic READ CAPACITY(16) JSON response. It never touches a
+# device.
+case "$*" in
+  *sdd*)
+    # A 4Kn device with Type 1 protection.
+    cat <<'JSON'
+{"read_capacity": {"last_lba": 1953514583, "block_length": 4096,
+  "prot_en": 1, "p_type": 0, "protection_exponent": 0,
+  "logical_blocks_per_physical_block_exponent": 3}}
+JSON
+    exit 0
+    ;;
+  *)
+    cat <<'JSON'
+{"read_capacity": {"last_lba": 1758174767, "block_length": 512,
+  "prot_en": 0, "p_type": 0, "logical_blocks_per_physical_block_exponent": 3}}
+JSON
+    exit 0
+    ;;
+esac

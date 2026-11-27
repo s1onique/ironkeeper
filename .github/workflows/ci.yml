@@ -163,6 +163,17 @@ jobs:
       - name: Verify the embedded schemas match the repository
         run: tools/gate_schema_drift.sh
 
+      # The storage commands need no storage device: the tests use a
+      # synthetic sysfs tree and controlled backend executables from the
+      # repository fixtures. Nothing here touches a real block device.
+      - name: Check the storage observation fixtures
+        run: |
+          set -euo pipefail
+          test -d tests/fixtures/storage/sys/class/block
+          test -x tests/fixtures/storage/tools/smartctl
+          test -x tests/fixtures/storage/tools/sg_readcap
+          echo "storage fixtures present"
+
       # The fault-injection harness exercises the *actual* production gate
       # scripts with controlled failing dependencies. It is lightweight: it
       # needs no network and no hardware, so it runs on every change.

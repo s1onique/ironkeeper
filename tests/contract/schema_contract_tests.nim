@@ -19,6 +19,10 @@ import testkit
 import ironkeeper/contracts/schemaregistry
 import ironkeeper/contracts/validator
 import ironkeeper/json/strictjson
+import ironkeeper/storage/types
+import ironkeeper/storage/sysfs
+import ironkeeper/storage/identity
+import ironkeeper/storage/documents
 
 const
   SchemaDir = "schemas/v1"
@@ -168,6 +172,60 @@ proc runSuite*(): int =
   let lifecycleLeak = ValidReport.replace("\"SUCCEEDED\"", "\"IN_SERVICE\"")
   t.check("rejects a device lifecycle state used as an execution state",
     not v.validateAgainst(parseJson(lifecycleLeak), reportSchema).ok)
+
+  # --- The storage contracts accept the documents the binary produces ------
+  # The documents are rendered by the production renderer from a synthetic
+  # tree, so the contract is exercised against real output rather than
+  # against a hand-written approximation.
+  let fixtureRoot = currentSourcePath().parentDir().parentDir().parentDir() /
+    "tests/fixtures/storage"
+  let inventory = discover(DiscoveryRoots(
+    sysfsRoot: fixtureRoot / "sys", devRoot: fixtureRoot / "dev",
+    udevDataDir: fixtureRoot / "run/udev/data"))
+  var reconciled = inventory
+  reconcile(reconciled)
+  let inventorySchema = parseJson(schemaText("inventory"))
+  let inventoryOutcome = v.validateAgainst(inventoryDocument(reconciled),
+                                           inventorySchema)
+  t.check("the generated inventory satisfies the inventory contract",
+          inventoryOutcome.ok)
+  if not inventoryOutcome.ok:
+    for issue in inventoryOutcome.issues:
+      echo "    ", issue.location, ": ", issue.message
+
+  # An unknown property at an authoritative object boundary is rejected.
+  let polluted = inventoryDocument(reconciled)
+  polluted["devices"][0]["unexpected"] = newJString("x")
+  t.check("the inventory contract rejects an unknown property",
+          not v.validateAgainst(polluted, inventorySchema).ok)
+
+  # An observation document.
+  var observationDoc = newJObject()
+  observationDoc["schema_version"] = newJInt(1)
+  observationDoc["device"] = deviceJson(reconciled.devices[0],
+                                         withSchemaVersion = false)
+  var observations = newJArray()
+  observations.add observationJson(Observation(
+    name: "scsi.grown_defect_count", status: osUnavailable, value: "",
+    unit: "defects", source: "smartctl", sourceField: "scsi_grown_defect_list",
+    collectedAt: "2026-01-01T00:00:00Z",
+    reason: "the grown defect list was not present"))
+  observationDoc["observations"] = observations
+  let observationSchema = parseJson(schemaText("observation"))
+  let observationOutcome = v.validateAgainst(observationDoc, observationSchema)
+  t.check("the generated observation satisfies the observation contract",
+          observationOutcome.ok)
+  if not observationOutcome.ok:
+    for issue in observationOutcome.issues:
+      echo "    ", issue.location, ": ", issue.message
+
+  # An observation that fabricates a zero for a missing field is still
+  # structurally valid: the *semantics* are carried by the status.
+  var fabricated = observationDoc
+  fabricated["observations"][0]["status"] = newJString("observed")
+  fabricated["observations"][0]["value"] = newJString("0")
+  t.check("a fabricated zero is structurally valid but carries the wrong status",
+          v.validateAgainst(fabricated, observationSchema).ok)
 
   # --- The example configuration in the repository is valid ----------------
   if fileExists("examples/ironkeeper.json"):

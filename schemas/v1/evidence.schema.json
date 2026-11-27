@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/evidence.schema.json",
+  "title": "Ironkeeper evidence manifest",
+  "description": "The manifest of one invocation-scoped evidence bundle. The manifest lists the preserved artefacts with their exact byte length and their SHA-256 digest. A digest is an integrity check over the preserved bytes; it is not a proof of provenance or authenticity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "bundle_id", "created_at", "artifacts"],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this evidence contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "bundle_id": {
+      "description": "The unique identity of this bundle.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 64,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "target": {
+      "description": "The device the bundle belongs to.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kernel_name", "paths", "identity_confidence"],
+      "properties": {
+        "kernel_name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "paths": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "identity_confidence": {
+          "type": "string",
+          "enum": ["authoritative", "probable", "ambiguous", "unresolved"]
+        }
+      }
+    },
+    "attribution": {
+      "description": "Whether the evidence is bound to the selected device.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["bound", "refused"]
+        },
+        "reason": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "completeness": {
+      "description": "The completeness of the collection.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "description": "Whether every requested observation was collected.",
+          "type": "string",
+          "enum": ["complete", "partial", "failed"]
+        },
+        "reason": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "artifacts": {
+      "description": "The preserved artefacts.",
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "byte_length", "sha256", "kind"],
+        "properties": {
+          "name": {
+            "description": "The file name of the artefact, relative to the bundle directory.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "byte_length": {
+            "description": "The exact length of the preserved bytes.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "description": "The lowercase hex SHA-256 digest of the preserved bytes.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "kind": {
+            "description": "The kind of the artefact.",
+            "type": "string",
+            "enum": [
+              "tool_stdout",
+              "tool_stderr",
+              "normalized_document",
+              "other"
+            ]
+          },
+          "tool": { "type": "string", "maxLength": 256 },
+          "outcome": { "type": "string", "maxLength": 64 },
+          "exit_status": { "type": "integer" },
+          "collected_at": { "type": "string", "maxLength": 64 },
+          "note": { "type": "string", "maxLength": 1024 }
+        }
+      }
+    }
+  }
+}

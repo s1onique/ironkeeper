@@ -13,7 +13,11 @@ import std/json
 const
   EmbeddedSchemaNames* = [
     "config",
+    "device",
     "error",
+    "evidence",
+    "inventory",
+    "observation",
     "report",
     "schemaindex",
     "validation",
@@ -90,6 +94,199 @@ let
 """,
     """{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/device.schema.json",
+  "title": "Ironkeeper device record",
+  "description": "One discovered block device. The record describes what the kernel and udev reported; it carries no assessment and no admission verdict. An observation that the device did not provide is absent, never a zero.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kernel_name",
+    "device_class",
+    "transport",
+    "identity"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this device contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "kernel_name": {
+      "description": "The kernel name of the block device, for example `sdb`.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "device_class": {
+      "description": "The class of the device. Only `physical` devices are active-interrogation targets.",
+      "type": "string",
+      "enum": [
+        "physical",
+        "partition",
+        "device_mapper",
+        "raid",
+        "loop",
+        "ram",
+        "optical",
+        "virtual",
+        "unknown"
+      ]
+    },
+    "transport": {
+      "description": "The transport the device is attached through.",
+      "type": "string",
+      "enum": ["sas", "sata", "nvme", "scsi", "unknown"]
+    },
+    "major": {
+      "description": "The major device number.",
+      "type": "string",
+      "maxLength": 16
+    },
+    "minor": {
+      "description": "The minor device number.",
+      "type": "string",
+      "maxLength": 16
+    },
+    "sysfs_path": {
+      "description": "The sysfs path of the device.",
+      "type": "string",
+      "maxLength": 4096
+    },
+    "vendor": {
+      "description": "The reported vendor. Absent when the device did not report one.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "model": {
+      "description": "The reported model. Absent when the device did not report one.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "serial": {
+      "description": "The reported serial number. A weak identifier on its own.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "firmware": {
+      "description": "The reported firmware revision.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "wwn": {
+      "description": "The observed world-wide name, in the form the source reported it.",
+      "type": "string",
+      "maxLength": 256
+    },
+    "capacity_bytes": {
+      "description": "The capacity in bytes, as a canonical decimal string. A capacity beyond 2^53 bytes keeps every digit.",
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "logical_block_size": {
+      "description": "The logical block size in bytes.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "physical_block_size": {
+      "description": "The physical block size in bytes.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "rotational": {
+      "description": "Whether the device reports itself as rotational. Absent when the kernel did not say.",
+      "type": "boolean"
+    },
+    "paths": {
+      "description": "The current access paths of the device.",
+      "type": "array",
+      "maxItems": 64,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "aliases": {
+      "description": "The persistent aliases of the device.",
+      "type": "array",
+      "maxItems": 64,
+      "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    },
+    "identity": {
+      "description": "The reconciled identity of the device.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confidence", "identifiers"],
+      "properties": {
+        "confidence": {
+          "description": "How much authority the identity carries.",
+          "type": "string",
+          "enum": ["authoritative", "probable", "ambiguous", "unresolved"]
+        },
+        "identifiers": {
+          "description": "The observed persistent identifiers.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "namespace", "value", "original", "source"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "scsi_wwn",
+                  "ata_wwn",
+                  "nguid",
+                  "eui64",
+                  "nvme_uuid",
+                  "serial",
+                  "disk_sequence_number"
+                ]
+              },
+              "namespace": {
+                "description": "The object the identifier names.",
+                "type": "string",
+                "enum": ["logical_unit", "namespace", "controller"]
+              },
+              "value": {
+                "description": "The canonical form of the identifier.",
+                "type": "string",
+                "maxLength": 512
+              },
+              "original": {
+                "description": "The identifier exactly as it was observed.",
+                "type": "string",
+                "maxLength": 512
+              },
+              "source": {
+                "description": "Where the identifier was observed.",
+                "type": "string",
+                "maxLength": 256
+              }
+            }
+          }
+        },
+        "conflicts": {
+          "description": "The contradictory identity observations.",
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "maxLength": 1024 }
+        },
+        "duplicate_serial": {
+          "description": "True when another discovered device carries the same serial number.",
+          "type": "boolean"
+        }
+      }
+    },
+    "findings": {
+      "description": "The findings that explain the classification and the exclusions.",
+      "type": "array",
+      "maxItems": 128,
+      "items": { "type": "string", "maxLength": 1024 }
+    }
+  }
+}
+""",
+    """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ironkeeper.invalid/schemas/v1/error.schema.json",
   "title": "Ironkeeper error",
   "description": "Machine-readable error document. Emitted on stdout only when the caller asked for JSON output; otherwise the same information is rendered as human-readable text on stderr.",
@@ -132,6 +329,639 @@ let
           "type": "string",
           "maxLength": 4096
         }
+      }
+    }
+  }
+}
+""",
+    """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/evidence.schema.json",
+  "title": "Ironkeeper evidence manifest",
+  "description": "The manifest of one invocation-scoped evidence bundle. The manifest lists the preserved artefacts with their exact byte length and their SHA-256 digest. A digest is an integrity check over the preserved bytes; it is not a proof of provenance or authenticity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "bundle_id", "created_at", "artifacts"],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this evidence contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "bundle_id": {
+      "description": "The unique identity of this bundle.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 64,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "target": {
+      "description": "The device the bundle belongs to.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kernel_name", "paths", "identity_confidence"],
+      "properties": {
+        "kernel_name": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "paths": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+        },
+        "identity_confidence": {
+          "type": "string",
+          "enum": ["authoritative", "probable", "ambiguous", "unresolved"]
+        }
+      }
+    },
+    "attribution": {
+      "description": "Whether the evidence is bound to the selected device.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["bound", "refused"]
+        },
+        "reason": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "completeness": {
+      "description": "The completeness of the collection.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "description": "Whether every requested observation was collected.",
+          "type": "string",
+          "enum": ["complete", "partial", "failed"]
+        },
+        "reason": { "type": "string", "maxLength": 2048 }
+      }
+    },
+    "artifacts": {
+      "description": "The preserved artefacts.",
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "byte_length", "sha256", "kind"],
+        "properties": {
+          "name": {
+            "description": "The file name of the artefact, relative to the bundle directory.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "byte_length": {
+            "description": "The exact length of the preserved bytes.",
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "description": "The lowercase hex SHA-256 digest of the preserved bytes.",
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "kind": {
+            "description": "The kind of the artefact.",
+            "type": "string",
+            "enum": [
+              "tool_stdout",
+              "tool_stderr",
+              "normalized_document",
+              "other"
+            ]
+          },
+          "tool": { "type": "string", "maxLength": 256 },
+          "outcome": { "type": "string", "maxLength": 64 },
+          "exit_status": { "type": "integer" },
+          "collected_at": { "type": "string", "maxLength": 64 },
+          "note": { "type": "string", "maxLength": 1024 }
+        }
+      }
+    }
+  }
+}
+""",
+    """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/inventory.schema.json",
+  "title": "Ironkeeper storage inventory",
+  "description": "The passive inventory of the block devices of one host. The inventory is produced without opening a physical device and without running an observation tool. An enumeration failure is reported as an incomplete inventory, never as a successful empty inventory.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "complete", "devices"],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this inventory contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 64,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "complete": {
+      "description": "False when the enumeration itself failed or a device disappeared during it.",
+      "type": "boolean"
+    },
+    "root": {
+      "description": "The discovery root that was read.",
+      "type": "string",
+      "maxLength": 4096
+    },
+    "devices": {
+      "description": "The discovered block devices.",
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "kernel_name",
+          "device_class",
+          "transport",
+          "identity"
+        ],
+        "properties": {
+          "schema_version": { "type": "integer", "const": 1 },
+          "kernel_name": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "device_class": {
+            "type": "string",
+            "enum": [
+              "physical",
+              "partition",
+              "device_mapper",
+              "raid",
+              "loop",
+              "ram",
+              "optical",
+              "virtual",
+              "unknown"
+            ]
+          },
+          "transport": {
+            "type": "string",
+            "enum": ["sas", "sata", "nvme", "scsi", "unknown"]
+          },
+          "major": { "type": "string", "maxLength": 16 },
+          "minor": { "type": "string", "maxLength": 16 },
+          "sysfs_path": { "type": "string", "maxLength": 4096 },
+          "vendor": { "type": "string", "maxLength": 256 },
+          "model": { "type": "string", "maxLength": 256 },
+          "serial": { "type": "string", "maxLength": 256 },
+          "firmware": { "type": "string", "maxLength": 256 },
+          "wwn": { "type": "string", "maxLength": 256 },
+          "capacity_bytes": { "type": "string", "pattern": "^[0-9]+$" },
+          "logical_block_size": { "type": "integer", "minimum": 0 },
+          "physical_block_size": { "type": "integer", "minimum": 0 },
+          "rotational": { "type": "boolean" },
+          "paths": {
+            "type": "array",
+            "maxItems": 64,
+            "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+          },
+          "aliases": {
+            "type": "array",
+            "maxItems": 64,
+            "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+          },
+          "identity": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["confidence", "identifiers"],
+            "properties": {
+              "confidence": {
+                "type": "string",
+                "enum": ["authoritative", "probable", "ambiguous", "unresolved"]
+              },
+              "identifiers": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "namespace", "value", "original", "source"],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "scsi_wwn",
+                        "ata_wwn",
+                        "nguid",
+                        "eui64",
+                        "nvme_uuid",
+                        "serial",
+                        "disk_sequence_number"
+                      ]
+                    },
+                    "namespace": {
+                      "type": "string",
+                      "enum": ["logical_unit", "namespace", "controller"]
+                    },
+                    "value": { "type": "string", "maxLength": 512 },
+                    "original": { "type": "string", "maxLength": 512 },
+                    "source": { "type": "string", "maxLength": 256 }
+                  }
+                }
+              },
+              "conflicts": {
+                "type": "array",
+                "maxItems": 64,
+                "items": { "type": "string", "maxLength": 1024 }
+              },
+              "duplicate_serial": { "type": "boolean" }
+            }
+          },
+          "findings": {
+            "type": "array",
+            "maxItems": 128,
+            "items": { "type": "string", "maxLength": 1024 }
+          }
+        }
+      }
+    },
+    "findings": {
+      "description": "The findings of the enumeration.",
+      "type": "array",
+      "maxItems": 1024,
+      "items": { "type": "string", "maxLength": 2048 }
+    }
+  }
+}
+""",
+    """{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ironkeeper.invalid/schemas/v1/observation.schema.json",
+  "title": "Ironkeeper device observation",
+  "description": "The observations collected from one explicitly selected device. An observation is not an assessment: this document never carries an admission verdict and never reports PASS. A field that the device did not provide is represented by an observation whose status is unavailable or unsupported, never by a zero.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "device",
+    "observations"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "Version of this observation contract. Only version 1 is implemented.",
+      "type": "integer",
+      "const": 1
+    },
+    "generated_at": {
+      "description": "RFC 3339 timestamp of the collection.",
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 64,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "device": {
+      "description": "The device the observations belong to.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kernel_name",
+        "device_class",
+        "transport",
+        "identity"
+      ],
+      "properties": {
+        "kernel_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "device_class": {
+          "type": "string",
+          "enum": [
+            "physical",
+            "partition",
+            "device_mapper",
+            "raid",
+            "loop",
+            "ram",
+            "optical",
+            "virtual",
+            "unknown"
+          ]
+        },
+        "transport": {
+          "type": "string",
+          "enum": [
+            "sas",
+            "sata",
+            "nvme",
+            "scsi",
+            "unknown"
+          ]
+        },
+        "major": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "minor": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "vendor": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "serial": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "firmware": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "wwn": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "capacity_bytes": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "logical_block_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "physical_block_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "paths": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "aliases": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          }
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "confidence",
+            "identifiers"
+          ],
+          "properties": {
+            "confidence": {
+              "type": "string",
+              "enum": [
+                "authoritative",
+                "probable",
+                "ambiguous",
+                "unresolved"
+              ]
+            },
+            "identifiers": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "namespace",
+                  "value",
+                  "original",
+                  "source"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "scsi_wwn",
+                      "ata_wwn",
+                      "nguid",
+                      "eui64",
+                      "nvme_uuid",
+                      "serial",
+                      "disk_sequence_number"
+                    ]
+                  },
+                  "namespace": {
+                    "type": "string",
+                    "enum": [
+                      "logical_unit",
+                      "namespace",
+                      "controller"
+                    ]
+                  },
+                  "value": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "original": {
+                    "type": "string",
+                    "maxLength": 512
+                  },
+                  "source": {
+                    "type": "string",
+                    "maxLength": 256
+                  }
+                }
+              }
+            },
+            "conflicts": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "maxLength": 1024
+              }
+            },
+            "duplicate_serial": {
+              "type": "boolean"
+            }
+          }
+        },
+        "sysfs_path": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "findings": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        },
+        "rotational": {
+          "type": "boolean"
+        }
+      }
+    },
+    "observations": {
+      "description": "The normalised observations.",
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "status",
+          "source",
+          "collected_at"
+        ],
+        "properties": {
+          "name": {
+            "description": "The stable name of the observed quantity.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "status": {
+            "description": "How the observation was obtained.",
+            "type": "string",
+            "enum": [
+              "observed",
+              "derived",
+              "unavailable",
+              "unsupported",
+              "invalid",
+              "conflicting"
+            ]
+          },
+          "value": {
+            "description": "The exact value, as a canonical decimal string or a documented token. Absent when the observation carries no value.",
+            "type": "string",
+            "maxLength": 4096
+          },
+          "unit": {
+            "description": "The unit of the value.",
+            "type": "string",
+            "maxLength": 64
+          },
+          "source": {
+            "description": "The backend that produced the observation.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "source_field": {
+            "description": "The field or derivation the value came from.",
+            "type": "string",
+            "maxLength": 512
+          },
+          "collected_at": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 64,
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$"
+          },
+          "reason": {
+            "description": "Why the value is unavailable, unsupported, invalid or conflicting.",
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      }
+    },
+    "executions": {
+      "description": "The outcome of each external tool invocation.",
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "outcome",
+          "exit_status"
+        ],
+        "properties": {
+          "tool": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "non_zero_exit",
+              "timed_out",
+              "launch_failed",
+              "output_limit_exceeded",
+              "signalled"
+            ]
+          },
+          "exit_status": {
+            "type": "integer"
+          },
+          "signal": {
+            "type": "integer"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        }
+      }
+    },
+    "attribution": {
+      "description": "Whether the observations are bound to the selected device.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "description": "The attribution status of the collected observations.",
+          "type": "string",
+          "enum": [
+            "bound",
+            "refused"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      }
+    },
+    "findings": {
+      "description": "The findings of the collection.",
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "string",
+        "maxLength": 2048
       }
     }
   }

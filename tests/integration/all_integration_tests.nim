@@ -4,9 +4,11 @@
 ## the binary to exist; the CI workflow builds it before running them.
 
 import cli_tests
+import storage_cli_tests
 
 proc main(): int =
-  let failures = cli_tests.runSuite()
+  var failures = cli_tests.runSuite()
+  failures += storage_cli_tests.runSuite()
   if failures == 0:
     echo "ok   integration-suites"
     return 0

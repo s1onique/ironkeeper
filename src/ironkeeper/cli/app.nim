@@ -12,7 +12,7 @@
 ##   * A failure always produces a nonzero exit status and, in JSON mode, a
 ##     document conforming to `schemas/v1/error.schema.json`.
 
-import std/[json, strutils, os]
+import std/[json, strutils, os, tables]
 
 from ironkeeper/core/errors import IrkErrorImpl, IrkErrorKind, newIrkError, exitCodeFor, codeFor, ExitOk
 from ironkeeper/core/version import Version, ApplicationName
@@ -30,6 +30,8 @@ from ironkeeper/json/boundedread import openDocument, closeDocument, readDocumen
   ofNotRegularFile, rfTooLarge
 from ironkeeper/config/semantics import validateConfigSemantics
 import ironkeeper/cli/args as argmod
+import ironkeeper/cli/storage as storagemod
+import ironkeeper/storage/identity as identitymod
 
 const
   SupportedSchemaVersion* = 1
@@ -50,7 +52,15 @@ Usage:
   ironkeeper schema list [--json]
   ironkeeper schema config [--json]
   ironkeeper schema report [--json]
+  ironkeeper schema inventory [--json]
+  ironkeeper schema device [--json]
+  ironkeeper schema observation [--json]
+  ironkeeper schema evidence [--json]
   ironkeeper report validate --file <path> [--json]
+  ironkeeper inventory list [--transport <name>] [--json]
+  ironkeeper device inspect (--wwn <wwn> | --serial <serial> | --path <path>)
+                     [--smart] [--capacity] [--allow-wake]
+                     [--evidence-dir <parent>] [--json]
 
 Exit codes:
   0   success
@@ -87,6 +97,24 @@ Prints the schemas that this build implements. `schema list` names them;
 Usage: ironkeeper report validate --file <path> [--json]
 
 Validates a report document against schemas/v1/report.schema.json.
+"""
+
+  InventoryUsage = """
+Usage: ironkeeper inventory list [--transport <name>] [--json]
+
+Lists the block devices that the kernel reports. The command is passive:
+it opens no physical device and runs no observation tool.
+"""
+
+  InspectUsage = """
+Usage: ironkeeper device inspect (--wwn <wwn> | --serial <serial> | --path <path>)
+                     [--smart] [--capacity] [--allow-wake]
+                     [--evidence-dir <parent>] [--json]
+
+Inspects one explicitly selected device. Without `--smart` and
+`--capacity` the command is passive. With them it performs read-only
+interrogations, and `--allow-wake` is required, because a read-only SMART
+acquisition may wake a sleeping device.
 """
 
 type
@@ -156,7 +184,7 @@ proc cmdSchema(ctx: var CliContext, args: argmod.ParsedArgs) =
     else:
       for n in EmbeddedSchemaNames:
         ctx.writeOut(n)
-  of "config", "report":
+  of "config", "report", "inventory", "device", "observation", "evidence":
     let text = schemaText(which)
     if ctx.json:
       # The schema itself is JSON; emit it as a JSON document.
@@ -404,6 +432,64 @@ proc cmdReportValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
     raise newIrkError(ESemanticValidation,
       "the report document does not satisfy the report semantics")
 
+proc cmdInventoryList(ctx: var CliContext, args: argmod.ParsedArgs) =
+  ## `ironkeeper inventory list`
+  ctx.json = args.json
+  let transport = args.optionalOption("transport")
+  if transport.len > 0 and transport notin ["sas", "sata", "nvme", "scsi", "unknown"]:
+    failInvocation("unknown transport: " & transport)
+  let result = storagemod.cmdInventoryList(
+    storagemod.InventoryOptions(transport: transport,
+                                roots: storagemod.requireRoots()))
+  if ctx.json:
+    ctx.emitJson(result.document)
+  else:
+    for line in result.humanLines:
+      ctx.writeOut(line)
+
+proc cmdDeviceInspect(ctx: var CliContext, args: argmod.ParsedArgs) =
+  ## `ironkeeper device inspect`
+  ctx.json = args.json
+  let hasWwn = args.options.hasKey("wwn")
+  let hasSerial = args.options.hasKey("serial")
+  let hasPath = args.options.hasKey("path")
+  let selected = (if hasWwn: 1 else: 0) + (if hasSerial: 1 else: 0) +
+                 (if hasPath: 1 else: 0)
+  if selected == 0:
+    failInvocation("device inspect requires exactly one of --wwn, --serial or --path")
+  if selected > 1:
+    failInvocation("device inspect accepts exactly one of --wwn, --serial or --path")
+  let wantsSmart = args.hasFlag("smart")
+  let wantsCapacity = args.hasFlag("capacity")
+  let allowWake = args.hasFlag("allow-wake")
+  if (wantsSmart or wantsCapacity) and not allowWake:
+    failInvocation("an active interrogation requires --allow-wake: a read-only " &
+      "SMART acquisition may wake a sleeping device")
+  var selector: identitymod.Selector
+  if hasWwn:
+    selector = identitymod.Selector(kind: identitymod.skWwn,
+                                   value: args.requireOption("wwn"))
+  elif hasSerial:
+    selector = identitymod.Selector(kind: identitymod.skSerial,
+                                   value: args.requireOption("serial"))
+  else:
+    selector = identitymod.Selector(kind: identitymod.skPath,
+                                   value: args.requireOption("path"))
+  var options = storagemod.InspectOptions(selector: selector, smart: wantsSmart,
+    capacity: wantsCapacity, allowWake: allowWake,
+    evidenceDir: args.optionalOption("evidence-dir"),
+    roots: storagemod.requireRoots(), limits: storagemod.defaultLimits())
+  let result =
+    try:
+      storagemod.cmdDeviceInspect(options)
+    except ValueError as e:
+      raise newIrkError(EInputUnavailable, e.msg)
+  if ctx.json:
+    ctx.emitJson(result.document)
+  else:
+    for line in result.humanLines:
+      ctx.writeOut(line)
+
 proc dispatch(ctx: var CliContext, argv: seq[string]) =
   ## Route a command line to its implementation.
   ##
@@ -462,6 +548,28 @@ proc dispatch(ctx: var CliContext, argv: seq[string]) =
       ctx.writeOut(ReportUsage.strip())
       return
     cmdReportValidate(ctx, sub)
+  of "inventory":
+    if command.len < 2:
+      failInvocation("inventory requires a subcommand: list")
+    if command[1] != "list":
+      failInvocation("unknown inventory subcommand: " & command[1])
+    let sub = argmod.parseArgs(argv[2 .. ^1], @["transport"], @[])
+    if sub.help:
+      ctx.writeOut(InventoryUsage.strip())
+      return
+    cmdInventoryList(ctx, sub)
+  of "device":
+    if command.len < 2:
+      failInvocation("device requires a subcommand: inspect")
+    if command[1] != "inspect":
+      failInvocation("unknown device subcommand: " & command[1])
+    let sub = argmod.parseArgs(argv[2 .. ^1],
+      @["wwn", "serial", "path", "evidence-dir"],
+      @["smart", "capacity", "allow-wake"])
+    if sub.help:
+      ctx.writeOut(InspectUsage.strip())
+      return
+    cmdDeviceInspect(ctx, sub)
   of "daemon":
     # The daemon is not implemented. It is named explicitly so that the
     # failure is honest rather than "unknown command".
