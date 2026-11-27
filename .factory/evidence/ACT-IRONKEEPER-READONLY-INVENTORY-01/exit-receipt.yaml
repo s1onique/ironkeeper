@@ -32,7 +32,7 @@ NON_VACUITY: tools/gate_storage_non_vacuity.sh reverses six critical checks (ide
 
 LINUX_AMD64_NATIVE: "pass (CI job \"build and test (amd64)\" in run 45970216843; the complete suite also executed natively on the Linux storage host: unit 74 storage checks, contract 80 checks, integration 53 storage checks, all green)."
 LINUX_ARM64_NATIVE: pass (CI job "build and test (arm64)" in run 45970216843; a native arm64 runner, no emulation).
-CI_RUN_ID: 45971329094 (also 45970216843 and 45969499328, all successful)
+CI_RUN_ID: 45971329094 for the implementation subject 6e00e91 (also 45972040790 for the evidence commit 95a8030, 45970216843 for 400360e and 45969499328 for 68ee056; all successful)
 CI_CONCLUSION: success - secret scan, build and test (amd64), build and test (arm64) and validator qualification all concluded successfully.
 VALIDATOR_QUALIFICATION: pass - qualification_authoritative=true, qualification_classification=pinned-verified, inputs_digest_verified=true, validator_commit a936862556f24fde475059c560c1a13f00291457.
 SECRET_SCAN: pass - the whole history was scanned and no leaks were found; the CI job concluded successfully.
