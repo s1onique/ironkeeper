@@ -174,6 +174,25 @@ jobs:
           test -x tests/fixtures/storage/tools/sg_readcap
           echo "storage fixtures present"
 
+      # The two build variants are identified explicitly, so that a
+      # test-enabled binary can never be mistaken for the production one.
+      - name: Identify the build variants
+        run: |
+          set -euo pipefail
+          {
+            echo "production_variant: $(
+              ./build/ironkeeper version --json |
+                python3 -c 'import json,sys; print(json.load(sys.stdin)["build_variant"])')"
+            echo "testing_variant: $(
+              ./build/ironkeeper-testing version --json |
+                python3 -c 'import json,sys; print(json.load(sys.stdin)["build_variant"])')"
+            echo "production_sha256: $(sha256sum build/ironkeeper | cut -d' ' -f1)"
+            echo "testing_sha256: $(sha256sum build/ironkeeper-testing | cut -d' ' -f1)"
+          } | tee build-variants.txt
+          cat build-variants.txt
+          grep -q '^production_variant: production$' build-variants.txt
+          grep -q '^testing_variant: testing$' build-variants.txt
+
       # The non-vacuity gate reverses each critical check of the storage
       # subsystem and shows that the corresponding witness fails. It is
       # lightweight: it needs no network and no hardware.
@@ -232,10 +251,13 @@ jobs:
         run: |
           set -euo pipefail
           export IRK_DEPS_PATH="$HOME/.nimble/pkgs2/jschema-0.1.0/src"
-          rm -f build/ironkeeper
-          # The release build is the same one `nimble build` drives.
+          rm -f build/ironkeeper build/ironkeeper-testing
+          # The release build is the same one `nimble build` drives. It
+          # produces **two** variants: the production binary and the
+          # test-enabled binary.
           tools/build.sh
           ./build/ironkeeper --version
+          ./build/ironkeeper-testing --version
 
       - name: Record the executable identity
         run: |
@@ -244,6 +266,11 @@ jobs:
             echo "file: $(file build/ironkeeper)"
             echo "sha256: $(sha256sum build/ironkeeper | cut -d' ' -f1)"
             echo "size: $(stat -c %s build/ironkeeper)"
+            echo "variant: production"
+            echo "testing_file: $(file build/ironkeeper-testing)"
+            echo "testing_sha256: $(sha256sum build/ironkeeper-testing | cut -d' ' -f1)"
+            echo "testing_size: $(stat -c %s build/ironkeeper-testing)"
+            echo "testing_variant: testing"
           } | tee executable-identity.txt
           cat executable-identity.txt
 
@@ -272,8 +299,10 @@ jobs:
           name: build-evidence-${{ matrix.architecture }}
           path: |
             build/ironkeeper
+            build/ironkeeper-testing
             environment.txt
             executable-identity.txt
+            build-variants.txt
             dependency-resolution.txt
             gate-logs/
           retention-days: 7

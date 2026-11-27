@@ -309,10 +309,14 @@ proc runSuite*(): int =
     "smart_status": {"passed": false}, "temperature": {"current": 30}}""")
   t.checkEq("the ATA protocol is detected", detectProtocol(ataDoc.root), spAta)
 
+  # The real `smartctl` companions are `KEY_s` (the exact decimal value
+  # as a string) and `KEY_le` (the raw bytes as a little-endian byte
+  # array). The number itself keeps its exact source lexeme.
   let nvmeDoc = parseExternal("""{"nvme_smart_health_information_log": {
     "critical_warning": 0, "temperature": 305, "percentage_used": 3,
-    "data_units_read": "18446744073709551616",
-    "data_units_read_raw": "0x10000000000000000"}}""")
+    "data_units_read": 18446744073709551616,
+    "data_units_read_s": "18446744073709551616",
+    "data_units_read_le": [0, 0, 0, 0, 0, 0, 0, 0, 1]}}""")
   t.checkEq("the NVMe protocol is detected", detectProtocol(nvmeDoc.root), spNvme)
   let nvmeNormalized = normalizeSmart(nvmeDoc.root, "smartctl", "2026-01-01T00:00:00Z")
   var units = ""
@@ -324,7 +328,7 @@ proc runSuite*(): int =
 
   # A companion that disagrees is a finding, not a silently preferred value.
   let disagreeing = parseExternal("""{"nvme_smart_health_information_log": {
-    "data_units_read": "100", "data_units_read_raw": "0x200"}}""")
+    "data_units_read": 100, "data_units_read_s": "200"}}""")
   let disagreeingNormalized = normalizeSmart(disagreeing.root, "smartctl",
                                              "2026-01-01T00:00:00Z")
   t.check("a disagreeing companion is reported", disagreeingNormalized.findings.len > 0)

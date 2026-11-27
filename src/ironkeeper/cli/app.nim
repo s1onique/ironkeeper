@@ -15,7 +15,7 @@
 import std/[json, strutils, os, tables]
 
 from ironkeeper/core/errors import IrkErrorImpl, IrkErrorKind, newIrkError, exitCodeFor, codeFor, ExitOk
-from ironkeeper/core/version import Version, ApplicationName
+from ironkeeper/core.version import Version, ApplicationName, BuildVariant
 from ironkeeper/contracts/report import Report, ReportType, newReport, toJson, errorDocument, newFinding,
   ExecutionState, AssessmentVerdict, FindingSeverity, esFailed, esSucceeded,
   avPass, avWarn, avFail, avInconclusive, fsError, fsInfo, fsWarning, nowUtc
@@ -157,6 +157,9 @@ proc cmdVersion(ctx: var CliContext, args: argmod.ParsedArgs) =
     sv.add newJInt(1)
     v["schema_versions"] = sv
     v["contract"] = newJString("https://json-schema.org/draft/2020-12/schema")
+    # The build variant is reported, so that a test-enabled binary can
+    # never be mistaken for a production one.
+    v["build_variant"] = newJString(BuildVariant)
     ctx.emitJson(v)
   else:
     ctx.writeOut(Version)
@@ -489,6 +492,13 @@ proc cmdDeviceInspect(ctx: var CliContext, args: argmod.ParsedArgs) =
   else:
     for line in result.humanLines:
       ctx.writeOut(line)
+  # The dispatcher consumes the exit status of the command. An
+  # acquisition that did not obtain every requested observation is
+  # reported as an unavailable input, and the document that was produced
+  # is still the machine-readable result.
+  if result.exitCode != ExitOk:
+    raise newIrkError(EInputUnavailable,
+      "the requested observations could not be obtained completely")
 
 proc dispatch(ctx: var CliContext, argv: seq[string]) =
   ## Route a command line to its implementation.

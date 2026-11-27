@@ -5,7 +5,11 @@
   "description": "Machine-readable version identity of an Ironkeeper build.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "version", "schema_versions"],
+  "required": [
+    "name",
+    "version",
+    "schema_versions"
+  ],
   "properties": {
     "name": {
       "description": "Program name.",
@@ -33,6 +37,14 @@
       "description": "The JSON Schema dialect used by the contracts of this build.",
       "type": "string",
       "const": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "build_variant": {
+      "description": "The build variant of this binary. A production build has no test seams; a test-enabled build honours the controlled fixture seams.",
+      "type": "string",
+      "enum": [
+        "production",
+        "testing"
+      ]
     }
   }
 }

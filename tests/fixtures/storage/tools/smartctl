@@ -6,11 +6,14 @@
 case "$*" in
   *sdc*)
     # A device that reports a failing condition: exit bit 3.
+    # The serial number is the one the udev record of this device
+    # carries, so that the failing status is a health observation and not
+    # an identity contradiction.
     cat <<'JSON'
 {"json_format_version": [1, 0],
  "smartctl": {"version": [7, 5], "exit_status": 8},
  "model_name": "ST900MM0006",
- "serial_number": "SEAGATE-ST900MM0006",
+ "serial_number": "SEAGATE-ST900MM0007",
  "firmware_version": "0004",
  "smart_status": {"passed": false},
  "scsi_error_counter_log": {"read_errors_corrected": 120, "read_errors_total": 3,
@@ -26,6 +29,67 @@ case "$*" in
 JSON
     exit 8
     ;;
+  *sdf*)
+    # The device disappears while the tool runs: the tool removes the
+    # synthetic device directory before it answers. The attribution of
+    # the response must be refused, because the target is gone.
+    root="$(dirname "$0")/.."
+    rm -rf "$root/sys/class/block/sdf"
+    cat <<'JSON'
+{"json_format_version": [1, 0],
+ "smartctl": {"version": [7, 5], "exit_status": 0},
+ "model_name": "ST900MM0006",
+ "serial_number": "SEAGATE-ST900MM0009",
+ "firmware_version": "0004",
+ "smart_status": {"passed": true}}
+JSON
+    exit 0
+    ;;
+  *sdg*)
+    # The device is replaced while the tool runs: the kernel name, the
+    # device numbers and the world-wide name stay the same, but the disk
+    # sequence number changes. The attribution must be refused.
+    root="$(dirname "$0")/.."
+    printf '99\n' > "$root/sys/class/block/sdg/diskseq"
+    cat <<'JSON'
+{"json_format_version": [1, 0],
+ "smartctl": {"version": [7, 5], "exit_status": 0},
+ "model_name": "ST900MM0006",
+ "serial_number": "SEAGATE-ST900MM0010",
+ "firmware_version": "0004",
+ "smart_status": {"passed": true}}
+JSON
+    exit 0
+    ;;
+  *sdh*)
+    # The rediscovery fails while the tool runs: the synthetic discovery
+    # root becomes unavailable. The identity cannot be established as
+    # unchanged, so the attribution must be refused.
+    root="$(dirname "$0")/.."
+    mv "$root/sys/class/block" "$root/sys/class/block-hidden"
+    cat <<'JSON'
+{"json_format_version": [1, 0],
+ "smartctl": {"version": [7, 5], "exit_status": 0},
+ "model_name": "ST900MM0006",
+ "serial_number": "SEAGATE-ST900MM0011",
+ "firmware_version": "0004",
+ "smart_status": {"passed": true}}
+JSON
+    exit 0
+    ;;
+  *sde*)
+    # A device whose tool-reported serial number contradicts the serial
+    # number of the selected device. The evidence must be unbound.
+    cat <<'JSON'
+{"json_format_version": [1, 0],
+ "smartctl": {"version": [7, 5], "exit_status": 0},
+ "model_name": "ST900MM0006",
+ "serial_number": "SEAGATE-DIFFERENT-SERIAL",
+ "firmware_version": "0004",
+ "smart_status": {"passed": true}}
+JSON
+    exit 0
+    ;;
   *nvme0n1*)
     # An NVMe namespace whose counters exceed 64 bits.
     cat <<'JSON'
@@ -37,10 +101,13 @@ JSON
  "nvme_smart_health_information_log": {
    "critical_warning": 0, "temperature": 312, "available_spare": 100,
    "available_spare_threshold": 10, "percentage_used": 3,
-   "data_units_read": "18446744073709551616",
-   "data_units_read_raw": "0x10000000000000000",
-   "data_units_written": "9007199254740993",
-   "host_read_commands": "18446744073709551615",
+   "data_units_read": 18446744073709551616,
+   "data_units_read_s": "18446744073709551616",
+   "data_units_read_le": [0, 0, 0, 0, 0, 0, 0, 0, 1],
+   "data_units_written": 9007199254740993,
+   "data_units_written_s": "9007199254740993",
+   "host_read_commands": 18446744073709551615,
+   "host_read_commands_s": "18446744073709551615",
    "host_write_commands": 123456789,
    "power_cycles": 42, "power_on_hours": 9001,
    "unsafe_shutdowns": 3, "media_errors": 0,

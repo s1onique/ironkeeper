@@ -352,6 +352,29 @@
         }
       }
     },
+    "completeness": {
+      "description": "The authoritative completeness of the collection. The completeness is derived from the requested observation coverage, not from the presence of an execution record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "description": "Whether every requested observation was collected.",
+          "type": "string",
+          "enum": [
+            "complete",
+            "partial",
+            "failed"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      }
+    },
     "findings": {
       "description": "The findings of the collection.",
       "type": "array",

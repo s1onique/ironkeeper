@@ -164,6 +164,9 @@ import sys
 path = sys.argv[1]
 text = open(path).read()
 old = """    if now >= deadline:
+      # The deadline is authoritative, including after the pipes reached
+      # end of file: a child that closed both streams and kept running is
+      # still terminated here.
       timedOut = true
       break"""
 new = """    if now >= deadline:
@@ -212,6 +215,146 @@ PY
 mutate src/ironkeeper/storage/scsicap.nim "$WORK/mutate_protection.py"
 build_unit
 expect_unit_failure scsi-protection "PROT_EN 1 and P_TYPE 3 is reserved"
+restore
+
+# The compiled-CLI suite is built for the mutations that change the
+# behaviour of the shipped binary.
+build_integration() {
+  local nimcache
+  nimcache="$(mktemp -d)"
+  # The compiled-CLI suite exercises the **shipped binaries**, so both
+  # variants are rebuilt for the mutation.
+  $NIM c --mm:orc --hints:off --nimcache:"$nimcache" --path:src \
+    "${DEPS_ARG[@]}" -o:"$WORK/ironkeeper" src/ironkeeper.nim \
+    > "$WORK/build.log" 2>&1 || { rm -rf "$nimcache"; return 1; }
+  $NIM c --mm:orc --hints:off --nimcache:"$nimcache" -d:ironkeeperTesting \
+    --path:src "${DEPS_ARG[@]}" -o:"$WORK/ironkeeper-testing" src/ironkeeper.nim \
+    >> "$WORK/build.log" 2>&1 || { rm -rf "$nimcache"; return 1; }
+  $NIM c --mm:orc --hints:off --nimcache:"$nimcache" --path:src \
+    --path:tests/unit --path:tests/contract --path:tests/integration \
+    "${DEPS_ARG[@]}" -o:"$WORK/integration_tests" \
+    tests/integration/all_integration_tests.nim >> "$WORK/build.log" 2>&1
+  local status=$?
+  rm -rf "$nimcache"
+  if [ "$status" -eq 0 ]; then
+    mkdir -p "$ROOT/build"
+    cp "$WORK/ironkeeper" "$ROOT/build/ironkeeper"
+    cp "$WORK/ironkeeper-testing" "$ROOT/build/ironkeeper-testing"
+  fi
+  return $status
+}
+
+# expect_integration_failure <label> <expected-witness-phrase>
+#
+# The mutation must make the compiled-CLI suite fail, and the failure
+# must name the witness that is expected to catch it.
+expect_integration_failure() {
+  local label="$1"
+  local phrase="$2"
+  set +e
+  "$WORK/integration_tests" > "$WORK/$label.log" 2>&1
+  local status=$?
+  set -e
+  if [ "$status" -eq 0 ]; then
+    echo "gate: FAIL $label: the mutation did not make the suite fail" >&2
+    FAILED+=("$label")
+    return 0
+  fi
+  if ! grep -q "$phrase" "$WORK/$label.log"; then
+    echo "gate: FAIL $label: the suite failed, but not on the expected witness" >&2
+    echo "  expected witness: $phrase" >&2
+    tail -20 "$WORK/$label.log" >&2
+    FAILED+=("$label")
+    return 0
+  fi
+  echo "gate: ok   $label (the witness failed as expected)"
+}
+
+echo "=== non-vacuity: the production binary has no test seams ==="
+# The production build must not honour the test seams. The mutation
+# makes the *production* build read the tool seam, and the witness that
+# catches it is the seam-isolation witness of the compiled-CLI suite.
+cat > "$WORK/mutate_seam.py" <<'PYSEAM'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = """  when TestingBuild:
+    let sysfs = getEnv(SysfsRootEnv)"""
+new = """  when true:
+    let sysfs = getEnv(SysfsRootEnv)"""
+assert old in text, "the seam mutation anchor was not found"
+open(path, "w").write(text.replace(old, new, 1))
+PYSEAM
+mutate src/ironkeeper/cli/storage.nim "$WORK/mutate_seam.py"
+build_integration
+expect_integration_failure production-seam "the production binary does not read the synthetic tree"
+restore
+
+echo "=== non-vacuity: the pipe stream identity is preserved ==="
+cat > "$WORK/mutate_stream.py" <<'PYSTREAM'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = """        let isOut = streamOf[i] == 0"""
+new = """        let isOut = i == 0"""
+assert old in text, "the stream mutation anchor was not found"
+open(path, "w").write(text.replace(old, new, 1))
+PYSTREAM
+mutate src/ironkeeper/storage/procexec.nim "$WORK/mutate_stream.py"
+build_unit
+expect_unit_failure pipe-stream-identity "the standard error keeps its own data"
+restore
+
+echo "=== non-vacuity: the trailing zero of a capacity is conserved ==="
+cat > "$WORK/mutate_capacity.py" <<'PYCAP'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = """  let product = dec.mulSmall(a, b)
+  (ok: product.ok, value: product.value)"""
+new = """  let product = dec.mulSmall(a, b)
+  var trimmed = product.value
+  while trimmed.len > 0 and trimmed[^1] == '0':
+    trimmed.setLen(trimmed.len - 1)
+  (ok: product.ok, value: trimmed)"""
+assert old in text, "the capacity mutation anchor was not found"
+open(path, "w").write(text.replace(old, new, 1))
+PYCAP
+mutate src/ironkeeper/storage/scsicap.nim "$WORK/mutate_capacity.py"
+build_unit
+expect_unit_failure capacity-trailing-zero "the capacity conserves every digit"
+restore
+
+echo "=== non-vacuity: a missing protection field is never Type 0 ==="
+cat > "$WORK/mutate_protection.py" <<'PYPROT'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = """  if not evidence.protEnPresent:
+    return ptMissing"""
+new = """  if not evidence.protEnPresent:
+    return ptType0"""
+assert old in text, "the protection mutation anchor was not found"
+open(path, "w").write(text.replace(old, new, 1))
+PYPROT
+mutate src/ironkeeper/storage/scsicap.nim "$WORK/mutate_protection.py"
+build_unit
+expect_unit_failure missing-protection "a missing protection field is never Type 0"
+restore
+
+echo "=== non-vacuity: the SMART exit bitmask is decoded ==="
+cat > "$WORK/mutate_bitmask2.py" <<'PYBIT'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+old = """  result.failingStatus = (status and SmartBitFailingStatus) != 0"""
+new = """  result.failingStatus = false"""
+assert old in text, "the bitmask mutation anchor was not found"
+open(path, "w").write(text.replace(old, new, 1))
+PYBIT
+mutate src/ironkeeper/storage/smartstatus.nim "$WORK/mutate_bitmask2.py"
+build_unit
+expect_unit_failure smart-bitmask-2 "the bit 8 is decoded independently"
 restore
 
 echo "=== the restored implementation is green ==="

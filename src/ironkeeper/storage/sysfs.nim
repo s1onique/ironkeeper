@@ -357,7 +357,16 @@ proc discoverDevice(name: string, blockDir: string, roots: DiscoveryRoots,
     let udevPath = roots.udevDataDir / ("b" & result.major & ":" & result.minor)
     let props = readUdevProps(udevPath)
     if props.len > 0:
-      if result.serial.len == 0 and props.hasKey("ID_SERIAL_SHORT"):
+      # The serial number of an NVMe device belongs to the **controller**.
+      # Two namespaces behind one controller share it, so it is never the
+      # serial number of the namespace.
+      let isNvme = name.startsWith("nvme")
+      if isNvme:
+        if props.hasKey("ID_SERIAL_SHORT"):
+          result.controllerSerial = props["ID_SERIAL_SHORT"]
+        elif props.hasKey("ID_SERIAL"):
+          result.controllerSerial = props["ID_SERIAL"]
+      elif result.serial.len == 0 and props.hasKey("ID_SERIAL_SHORT"):
         result.serial = props["ID_SERIAL_SHORT"]
       elif result.serial.len == 0 and props.hasKey("ID_SERIAL"):
         result.serial = props["ID_SERIAL"]
@@ -381,31 +390,65 @@ proc discoverDevice(name: string, blockDir: string, roots: DiscoveryRoots,
             result.transport = trScsi
         else:
           discard
-      if result.wwn.len == 0 and props.hasKey("ID_WWN_WITH_EXTENSION"):
-        result.wwn = props["ID_WWN_WITH_EXTENSION"]
-      elif result.wwn.len == 0 and props.hasKey("ID_WWN"):
-        result.wwn = props["ID_WWN"]
+      if props.hasKey("ID_WWN_WITH_EXTENSION"):
+        result.wwnUdev = props["ID_WWN_WITH_EXTENSION"]
+      elif props.hasKey("ID_WWN"):
+        result.wwnUdev = props["ID_WWN"]
+      if not isNvme and result.serial.len == 0 and
+         result.controllerSerial.len > 0:
+        result.serial = result.controllerSerial
     else:
       result.findings.add "no udev properties were available for " & name
 
   # ---- the world-wide name -------------------------------------------------
-  if result.wwn.len == 0:
-    let wwid = readAttr(deviceDir / "wwid")
-    if wwid.ok and wwid.value.len > 0:
-      result.wwn = wwid.value
-    else:
-      let blockWwid = readAttr(dir / "wwid")
-      if blockWwid.ok and blockWwid.value.len > 0:
-        result.wwn = blockWwid.value
+  # The kernel observation and the udev observation are kept **separately**.
+  # A conflict between them is a contradiction to be reported, not a
+  # disagreement to be resolved by preferring one source.
+  let wwid = readAttr(deviceDir / "wwid")
+  if wwid.ok and wwid.value.len > 0:
+    result.wwnSysfs = wwid.value
+  else:
+    let blockWwid = readAttr(dir / "wwid")
+    if blockWwid.ok and blockWwid.value.len > 0:
+      result.wwnSysfs = blockWwid.value
+  result.wwn = (if result.wwnSysfs.len > 0: result.wwnSysfs
+                else: result.wwnUdev)
+
+  # ---- the disk sequence number --------------------------------------------
+  # The kernel assigns the disk sequence number when the device is
+  # registered. It changes when the device is replaced, even when the
+  # kernel name, the device numbers and the world-wide name are reused.
+  let diskSeq = readAttr(dir / "diskseq")
+  if diskSeq.ok and diskSeq.value.len > 0:
+    result.diskSequence = diskSeq.value
 
   # ---- the NVMe namespace identity -----------------------------------------
   if result.transport == trNvme:
     let nsid = readAttr(dir / "nsid")
     if nsid.ok and nsid.value.len > 0:
       result.findings.add "nvme namespace id: " & nsid.value
-    let eui = readAttr(dir / "eui")
-    if eui.ok and eui.value.len > 0 and result.wwn.len == 0:
-      result.wwn = "eui." & eui.value
+    # The namespace identifiers are the ones that name the **namespace**:
+    # the EUI-64, the NGUID and the UUID. The controller serial is kept
+    # apart and never becomes a namespace identifier.
+    for candidate in ["eui", "nguid", "uuid", "uuid_len"]:
+      let value = readAttr(dir / candidate)
+      if value.ok and value.value.len > 0:
+        result.namespaceIds.add candidate & ":" & value.value
+    if result.namespaceIds.len == 0 and result.wwnSysfs.len > 0:
+      # The kernel's `wwid` of an NVMe namespace names the **namespace**.
+      result.namespaceIds.add "wwid:" & result.wwnSysfs
+    # The serial of an NVMe device belongs to the controller.
+    let serialAttr = readAttr(deviceDir / "serial")
+    if serialAttr.ok and serialAttr.value.len > 0:
+      if result.controllerSerial.len == 0:
+        result.controllerSerial = serialAttr.value
+      else:
+        result.findings.add "the controller serial of " & name &
+          " differs between the kernel and udev"
+    # The controller serial of an NVMe device stays in the controller
+    # namespace. It is **not** the serial number of the namespace: two
+    # namespaces behind one controller share it, and treating it as a
+    # device serial would make both of them ambiguous.
   if result.deviceClass == dcUnknown and result.transport != trUnknown:
     result.deviceClass = dcPhysical
   if result.deviceClass == dcUnknown:

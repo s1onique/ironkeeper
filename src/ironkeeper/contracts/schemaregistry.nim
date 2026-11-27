@@ -955,6 +955,29 @@ let
         }
       }
     },
+    "completeness": {
+      "description": "The authoritative completeness of the collection. The completeness is derived from the requested observation coverage, not from the presence of an execution record.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "description": "Whether every requested observation was collected.",
+          "type": "string",
+          "enum": [
+            "complete",
+            "partial",
+            "failed"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 2048
+        }
+      }
+    },
     "findings": {
       "description": "The findings of the collection.",
       "type": "array",
@@ -1325,7 +1348,11 @@ let
   "description": "Machine-readable version identity of an Ironkeeper build.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "version", "schema_versions"],
+  "required": [
+    "name",
+    "version",
+    "schema_versions"
+  ],
   "properties": {
     "name": {
       "description": "Program name.",
@@ -1353,6 +1380,14 @@ let
       "description": "The JSON Schema dialect used by the contracts of this build.",
       "type": "string",
       "const": "https://json-schema.org/draft/2020-12/schema"
+    },
+    "build_variant": {
+      "description": "The build variant of this binary. A production build has no test seams; a test-enabled build honours the controlled fixture seams.",
+      "type": "string",
+      "enum": [
+        "production",
+        "testing"
+      ]
     }
   }
 }

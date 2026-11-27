@@ -14,17 +14,24 @@
 ## ## The rules
 ##
 ##   * The bundle lives in a **unique, invocation-owned** directory below
-##     the directory the operator supplied. A caller-owned file is never
-##     overwritten, and a caller-owned directory is never removed.
-##   * The files are written with **restrictive permissions**.
+##     the directory the operator supplied. The directory is created with
+##     **restrictive permissions at creation** and with an **exclusive**
+##     creation, so that a name collision is resolved by the kernel and
+##     never by a check-then-create race.
+##   * Every artefact is created **exclusively**: an existing file is
+##     never overwritten, and a symlink is never followed.
+##   * The identity of the parent directory is checked before and after
+##     the export, so that a caller-controlled replacement of the parent
+##     cannot silently redirect the write.
 ##   * The manifest is published **after** the artefacts it references are
-##     finalised.
+##     finalised. A bundle without a manifest is a partial export, and it
+##     never masquerades as a complete one.
 ##   * A SHA-256 digest is an integrity check over the preserved bytes. It
 ##     is not a proof of provenance or of authenticity.
 ##   * Malformed or incomplete tool output is preserved, and it is marked
 ##     as such in the manifest.
 
-import std/[os, json, strutils, times]
+import std/[os, json, strutils, times, posix]
 
 from ironkeeper/storage/types import DeviceRecord, Observation, ExecOutcome,
   confidenceName
@@ -58,33 +65,85 @@ proc uniqueDirectoryName*(): string =
   let stamp = now().utc.format("yyyyMMdd'T'HHmmss")
   result = "invocation-" & stamp & "-" & $getCurrentProcessId()
 
+proc parentIdentity(path: string): tuple[ok: bool, dev: int64, ino: int64] =
+  ## The identity of the parent directory.
+  ##
+  ## The identity is the device number and the inode number. A caller
+  ## that replaces the parent directory between the check and the write
+  ## changes at least one of them.
+  var st: Stat
+  if stat(path.cstring, st) != 0:
+    return (ok: false, dev: 0, ino: 0)
+  (ok: true, dev: int64(st.st_dev), ino: int64(st.st_ino))
+
+proc createExclusiveDir(path: string): bool =
+  ## Create one directory with restrictive permissions, exclusively.
+  ##
+  ## The directory is created with mode 0700 **at creation**, so that it
+  ## is never observable with wider permissions. The creation is
+  ## exclusive: an existing directory makes it fail, and the caller
+  ## chooses another name.
+  if mkdir(path.cstring, 0x1c0'u16) != 0:
+    return false
+  true
+
+proc writeExclusive(path: string, content: string): bool =
+  ## Write one file exclusively, with restrictive permissions.
+  ##
+  ## The file is created with `O_EXCL`, so an existing file is never
+  ## overwritten and a symlink is never followed. The permissions are
+  ## 0600.
+  let fd = posix.open(path.cstring, O_WRONLY or O_CREAT or O_EXCL, 0x180'u16)
+  if fd < 0:
+    return false
+  var bytes = newSeq[byte](content.len)
+  if content.len > 0:
+    copyMem(addr bytes[0], unsafeAddr content[0], content.len)
+  var written = 0
+  while written < bytes.len:
+    let n = posix.write(fd, addr bytes[written], bytes.len - written)
+    if n <= 0:
+      discard posix.close(fd)
+      return false
+    written += n
+  discard posix.close(fd)
+  true
+
 proc writeBundle*(parent: string, bundleId: string, device: DeviceRecord,
                   artifacts: seq[EvidenceArtifact],
                   observationDocument: JsonNode,
                   attributionBound: bool, attributionReason: string,
-                  completeness: string): EvidenceBundle =
+                  completeness: string, completenessReason = ""): EvidenceBundle =
   ## Write one evidence bundle below `parent`.
   ##
-  ## The directory is created with restrictive permissions and is never
-  ## merged into an existing directory: a name collision is resolved by
-  ## appending a counter, so that a caller-owned file is never
-  ## overwritten.
+  ## The directory is created exclusively and with restrictive
+  ## permissions, every artefact is created exclusively, and the manifest
+  ## is published last. A bundle that was not finalised has no manifest,
+  ## so a partial export never masquerades as a complete one.
   if not dirExists(parent):
     raise newException(IOError, "the evidence parent directory does not exist: " &
       parent)
-  var directory = parent / uniqueDirectoryName()
-  var counter = 1
-  while dirExists(directory) or fileExists(directory):
-    directory = parent / (uniqueDirectoryName() & "-" & $counter)
+  let before = parentIdentity(parent)
+  if not before.ok:
+    raise newException(IOError, "the evidence parent directory could not be " &
+      "identified: " & parent)
+
+  var directory = ""
+  var counter = 0
+  while directory.len == 0:
+    var candidate = parent / uniqueDirectoryName()
+    if counter > 0:
+      candidate = parent / (uniqueDirectoryName() & "-" & $counter)
     inc counter
-  createDir(directory)
-  setFilePermissions(directory, {fpUserRead, fpUserWrite, fpUserExec})
+    if createExclusiveDir(candidate):
+      directory = candidate
 
   var manifestArtifacts = newJArray()
   for a in artifacts:
     let path = directory / a.name
-    writeFile(path, a.content)
-    setFilePermissions(path, {fpUserRead, fpUserWrite})
+    if not writeExclusive(path, a.content):
+      raise newException(IOError, "the evidence artefact could not be " &
+        "created exclusively: " & path)
     var entry = newJObject()
     entry["name"] = newJString(a.name)
     entry["byte_length"] = newJInt(a.content.len)
@@ -118,13 +177,24 @@ proc writeBundle*(parent: string, bundleId: string, device: DeviceRecord,
   manifest["attribution"] = attribution
   var complete = newJObject()
   complete["status"] = newJString(completeness)
+  if completenessReason.len > 0:
+    complete["reason"] = newJString(completenessReason)
   manifest["completeness"] = complete
   manifest["artifacts"] = manifestArtifacts
 
   # The manifest is written last: it is published only after the artefacts
-  # it references are finalised.
+  # it references are finalised. It is created exclusively as well, so
+  # that it can never replace a caller-owned file.
   let manifestPath = directory / "manifest.json"
-  writeFile(manifestPath, manifest.pretty(2) & "\n")
-  setFilePermissions(manifestPath, {fpUserRead, fpUserWrite})
+  if not writeExclusive(manifestPath, manifest.pretty(2) & "\n"):
+    raise newException(IOError, "the evidence manifest could not be " &
+      "created exclusively: " & manifestPath)
+
+  # The parent must still be the same directory. A caller-controlled
+  # replacement of the parent is refused rather than silently accepted.
+  let after = parentIdentity(parent)
+  if not after.ok or after.dev != before.dev or after.ino != before.ino:
+    raise newException(IOError, "the evidence parent directory changed " &
+      "during the export: " & parent)
 
   EvidenceBundle(directory: directory, manifest: manifest)

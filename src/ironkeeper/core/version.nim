@@ -22,3 +22,21 @@ const
 proc versionString*(): string =
   ## Machine-readable version identity of the running binary.
   ApplicationName & " " & Version
+
+const
+  TestingBuild* = defined(ironkeeperTesting)
+    ## True when this binary was compiled with the test build definition.
+    ##
+    ## The test build exists so that the *production* code paths can be
+    ## exercised against controlled fixtures. It is a **compile-time**
+    ## property: a shipped binary either has the test seams or it does
+    ## not, and the decision cannot be changed by an environment
+    ## variable.
+  BuildVariant* = (when TestingBuild: "testing" else: "production")
+    ## The identity of the build variant of the running binary.
+    ##
+    ## The variant is reported by `ironkeeper version --json` and is
+    ## recorded in the evidence manifest, so that a test-enabled binary
+    ## can never be mistaken for a production one.
+  BuildDefinition* = (when TestingBuild: "ironkeeperTesting" else: "none")
+    ## The compile-time definition that the running binary carries.

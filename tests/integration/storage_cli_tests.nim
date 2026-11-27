@@ -22,7 +22,22 @@ type
     stderrText: string
 
 proc binaryPath(): string =
+  ## The **test-enabled** binary under test.
+  ##
+  ## The compiled-CLI integration tests need the controlled fixture
+  ## seams, and those seams exist only in the test-enabled build. The
+  ## production build is exercised separately, by the seam-isolation
+  ## witness below, which proves that it ignores the very same
+  ## environment variables.
   let fromEnv = getEnv("IRONKEEPER_BIN")
+  if fromEnv.len > 0:
+    return fromEnv
+  let root = currentSourcePath().parentDir().parentDir().parentDir()
+  return root / "build" / "ironkeeper-testing"
+
+proc productionBinaryPath(): string =
+  ## The production binary under test.
+  let fromEnv = getEnv("IRONKEEPER_PRODUCTION_BIN")
   if fromEnv.len > 0:
     return fromEnv
   let root = currentSourcePath().parentDir().parentDir().parentDir()
@@ -31,9 +46,10 @@ proc binaryPath(): string =
 proc fixtureRoot(): string =
   currentSourcePath().parentDir().parentDir().parentDir() / "tests/fixtures/storage"
 
-proc runBinary(args: seq[string], env: Table[string, string] = initTable[string, string]()): RunResult =
+proc runBinary(args: seq[string], env: Table[string, string] = initTable[string, string](),
+               exe = ""): RunResult =
   ## Execute the binary with a controlled environment.
-  let exe = binaryPath()
+  let target = if exe.len > 0: exe else: binaryPath()
   var fullEnv = newStringTable(mode = StringTableMode.modeCaseSensitive)
   fullEnv["PATH"] = getEnv("PATH")
   # The dynamic loader path is passed through, because the binary links
@@ -44,7 +60,7 @@ proc runBinary(args: seq[string], env: Table[string, string] = initTable[string,
       fullEnv[loaderVar] = value
   for key, value in env:
     fullEnv[key] = value
-  let process = startProcess(exe, args = args, options = {}, env = fullEnv)
+  let process = startProcess(target, args = args, options = {}, env = fullEnv)
   var outText = ""
   var errText = ""
   if process.outputStream != nil:
@@ -252,6 +268,17 @@ proc runSuite*(): int =
     t.checkEq("the manifest declares its schema version",
               manifest["schema_version"].getInt, 1)
     t.check("the manifest lists the artefacts", manifest["artifacts"].len > 0)
+    # The manifest carries the authoritative completeness, and the
+    # stored observation document agrees with it semantically.
+    t.checkEq("the manifest carries the completeness",
+              manifest["completeness"]["status"].getStr, "complete")
+    var stored = parseDoc(readFile(bundles[0] / "observation.json"))
+    t.checkEq("the stored document carries the same completeness",
+              stored["completeness"]["status"].getStr,
+              manifest["completeness"]["status"].getStr)
+    t.checkEq("the stored document carries the same attribution",
+              stored["attribution"]["status"].getStr,
+              manifest["attribution"]["status"].getStr)
     var digestsOk = true
     for a in manifest["artifacts"]:
       let name = a["name"].getStr
@@ -269,5 +296,123 @@ proc runSuite*(): int =
                 storageEnv())
   t.checkEq("the second evidence export exits successfully", r.exitCode, 0)
   t.checkEq("the caller-owned file is preserved", readFile(callerFile), "caller data")
+
+  # ---- the attribution witnesses -----------------------------------------
+  # The witnesses need a **mutable** copy of the synthetic tree: the
+  # controlled tool removes or replaces the synthetic device while it
+  # runs. The copy is therefore made per witness, and the repository
+  # fixture is never modified.
+  proc copyTree(source: string, target: string) =
+    ## Copy a directory tree.
+    ##
+    ## The symbolic links of the tree are reproduced as symbolic links
+    ## with the same target, so that the copied tree behaves like the
+    ## original one.
+    copyDir(source, target)
+
+  proc mutableFixture(): string =
+    ## A fresh copy of the synthetic fixture tree.
+    let target = getTempDir() / "ironkeeper-mutable-fixture"
+    removeDir(target)
+    copyTree(fixtureRoot(), target)
+    target
+
+  proc mutableEnv(root: string): Table[string, string] =
+    ## The environment that points the binary at a copied fixture tree.
+    result = initTable[string, string]()
+    result["IRONKEEPER_SYSFS_ROOT"] = root / "sys"
+    result["IRONKEEPER_DEV_ROOT"] = root / "dev"
+    result["IRONKEEPER_UDEV_ROOT"] = root / "run/udev/data"
+    result["IRONKEEPER_TEST_TOOL_DIR"] = root / "tools"
+
+  # A device that disappears while the tool runs refuses the attribution.
+  var mutableRoot = mutableFixture()
+  var witness = runBinary(@["device", "inspect", "--wwn", "5000c500a1b2c3d6",
+                            "--smart", "--allow-wake", "--json"],
+                           mutableEnv(mutableRoot))
+  t.checkEq("a disappearing device is not a CLI success", witness.exitCode, 3)
+  var witnessDoc = parseDoc(witness.stdoutText)
+  t.checkEq("a disappearing device refuses the attribution",
+            witnessDoc["attribution"]["status"].getStr, "refused")
+  t.checkEq("a disappearing device does not claim complete evidence",
+            witnessDoc["completeness"]["status"].getStr, "partial")
+
+  # A device that is replaced while the tool runs refuses the
+  # attribution, even though the kernel name, the device numbers and the
+  # world-wide name stay the same.
+  mutableRoot = mutableFixture()
+  witness = runBinary(@["device", "inspect", "--wwn", "5000c500a1b2c3d7",
+                         "--smart", "--allow-wake", "--json"],
+                      mutableEnv(mutableRoot))
+  t.checkEq("a replaced device is not a CLI success", witness.exitCode, 3)
+  witnessDoc = parseDoc(witness.stdoutText)
+  t.checkEq("a replaced device refuses the attribution",
+            witnessDoc["attribution"]["status"].getStr, "refused")
+
+  # A rediscovery that does not complete cannot establish an unchanged
+  # identity, so the attribution is refused.
+  mutableRoot = mutableFixture()
+  witness = runBinary(@["device", "inspect", "--wwn", "5000c500a1b2c3d8",
+                         "--smart", "--allow-wake", "--json"],
+                      mutableEnv(mutableRoot))
+  t.checkEq("a failed rediscovery is not a CLI success", witness.exitCode, 3)
+  witnessDoc = parseDoc(witness.stdoutText)
+  t.checkEq("a failed rediscovery refuses the attribution",
+            witnessDoc["attribution"]["status"].getStr, "refused")
+
+  # A SMART response that reports a different persistent identifier
+  # produces unbound evidence.
+  witness = runBinary(@["device", "inspect", "--wwn", "5000c50012345678",
+                        "--smart", "--allow-wake", "--json"], storageEnv())
+  t.checkEq("a contradicting tool identity is not a CLI success",
+            witness.exitCode, 3)
+  witnessDoc = parseDoc(witness.stdoutText)
+  t.checkEq("a contradicting tool identity refuses the attribution",
+            witnessDoc["attribution"]["status"].getStr, "refused")
+
+  # A stable identity remains attributable, and the acquisition is
+  # complete.
+  witness = runBinary(@["device", "inspect", "--wwn", "5000c500a1b2c3d4",
+                        "--smart", "--allow-wake", "--json"], storageEnv())
+  t.checkEq("a stable identity is a CLI success", witness.exitCode, 0)
+  witnessDoc = parseDoc(witness.stdoutText)
+  t.checkEq("a stable identity stays bound",
+            witnessDoc["attribution"]["status"].getStr, "bound")
+  t.checkEq("a stable identity yields a complete acquisition",
+            witnessDoc["completeness"]["status"].getStr, "complete")
+
+  # ---- the production build has no test seams ----------------------------
+  # The marker executable records every execution. It is supplied to the
+  # **production** binary through the very environment variable that the
+  # test-enabled build honours. The marker must never run.
+  let production = productionBinaryPath()
+  t.check("the production binary exists (" & production & ")",
+          fileExists(production))
+  if fileExists(production):
+    let prodMarker = getTempDir() / "ironkeeper-production-marker"
+    removeFile(prodMarker)
+    var prodEnv = initTable[string, string]()
+    prodEnv["IRONKEEPER_TEST_TOOL_DIR"] = fixtureRoot() / "tools-marker"
+    prodEnv["IRONKEEPER_MARKER_FILE"] = prodMarker
+    prodEnv["IRONKEEPER_SYSFS_ROOT"] = fixtureRoot() / "sys"
+    prodEnv["IRONKEEPER_DEV_ROOT"] = fixtureRoot() / "dev"
+    prodEnv["IRONKEEPER_UDEV_ROOT"] = fixtureRoot() / "run/udev/data"
+    var prodResult = runBinary(@["device", "inspect", "--wwn",
+                                "5000c500a1b2c3d4", "--smart", "--allow-wake",
+                                "--json"], prodEnv, production)
+    t.check("the production binary does not execute the marker",
+            not fileExists(prodMarker))
+    t.check("the production binary does not read the synthetic tree",
+            prodResult.stdoutText.len == 0 or
+            not prodResult.stdoutText.contains("\"sdb\""))
+
+    # The two binaries identify themselves. A test-enabled binary can
+    # never be mistaken for a production one.
+    var prodVersion = runBinary(@["version", "--json"], prodEnv, production)
+    t.checkContains("the production binary identifies its variant",
+                    prodVersion.stdoutText, "\"build_variant\": \"production\"")
+    var testVersion = runBinary(@["version", "--json"], storageEnv())
+    t.checkContains("the test-enabled binary identifies its variant",
+                    testVersion.stdoutText, "\"build_variant\": \"testing\"")
 
   t.finish()

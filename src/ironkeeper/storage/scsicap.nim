@@ -21,11 +21,27 @@
 ## Both raw fields are always retained next to the derived value, and a
 ## reserved combination is reported as **unsupported**: it is never
 ## silently mapped onto Type 0.
+##
+## ## What the mapping needs and what it does not get
+##
+## A READ CAPACITY(16) response that carries no `PROT_EN` field carries
+## **no** protection information. Such a response is not evidence of
+## disabled protection: it is evidence that the protection state was not
+## observed. The module therefore distinguishes four states that the
+## earlier implementation collapsed into one:
+##
+##   * `missing` - the tool did not report the field;
+##   * `invalid` - the tool reported a value outside the defined range;
+##   * `reserved` - the tool reported a combination the standard reserves;
+##   * a normalized type - the tool reported a valid combination.
+##
+## Type 0 is derived **only** from an observed `PROT_EN` of zero.
 
 import std/strutils
 
+import ironkeeper/json/exactdecimal as dec
 from ironkeeper/storage/types import Observation, ObservationStatus, osObserved,
-  osDerived, osUnsupported, osInvalid
+  osDerived, osUnsupported, osInvalid, osUnavailable
 
 const
   ProtectionType0* = "type_0"
@@ -38,6 +54,15 @@ const
     ## Protection information in both the guard and the application tag.
   ProtectionReserved* = "reserved_unsupported"
     ## A reserved protection combination. Never mapped onto Type 0.
+  ProtectionMissing* = "missing"
+    ## The protection state was not observed.
+  ProtectionInvalid* = "invalid"
+    ## The protection state was observed but outside the defined range.
+
+  MaxProtEn* = 1
+    ## The largest defined `PROT_EN` value.
+  MaxPType* = 3
+    ## The largest defined `P_TYPE` value.
 
 type
   ProtectionType* = enum
@@ -47,6 +72,23 @@ type
     ptType2
     ptType3
     ptReserved
+    ptMissing
+      ## The tool did not report the protection fields.
+    ptInvalid
+      ## The tool reported protection fields outside the defined range.
+
+  ProtectionEvidence* = object
+    ## The raw protection fields as the tool reported them.
+    ##
+    ## The presence of a field and the validity of a field are **separate**
+    ## facts: an absent field is not a zero, and an out-of-range field is
+    ## not a protection type.
+    protEnPresent*: bool
+    protEn*: int
+    protEnValid*: bool
+    pTypePresent*: bool
+    pType*: int
+    pTypeValid*: bool
 
   CapacityReading* = object
     ## A decoded READ CAPACITY(16) response.
@@ -76,6 +118,8 @@ proc protectionTypeName*(t: ProtectionType): string =
   of ptType2: ProtectionType2
   of ptType3: ProtectionType3
   of ptReserved: ProtectionReserved
+  of ptMissing: ProtectionMissing
+  of ptInvalid: ProtectionInvalid
 
 proc mapProtection*(protEn: int, pType: int): ProtectionType =
   ## Map the raw protection fields onto the normalized protection type.
@@ -91,53 +135,42 @@ proc mapProtection*(protEn: int, pType: int): ProtectionType =
   of 2: ptType3
   else: ptReserved
 
+proc mapProtectionEvidence*(evidence: ProtectionEvidence): ProtectionType =
+  ## Map the observed protection evidence onto the normalized protection
+  ## type.
+  ##
+  ## Type 0 requires an **observed** `PROT_EN` of zero. An absent field
+  ## yields `missing` and an out-of-range field yields `invalid`; neither
+  ## is ever mapped onto Type 0.
+  if not evidence.protEnPresent:
+    return ptMissing
+  if not evidence.protEnValid:
+    return ptInvalid
+  if evidence.protEn == 0:
+    return ptType0
+  if not evidence.pTypePresent:
+    return ptMissing
+  if not evidence.pTypeValid:
+    return ptInvalid
+  mapProtection(evidence.protEn, evidence.pType)
+
 proc mulChecked*(a: string, b: int64): tuple[ok: bool, value: string] =
   ## Multiply an exact decimal string by a small integer, with a check.
   ##
   ## The multiplication is performed on the decimal digits, so the result
-  ## is exact for every capacity that fits in `int64`.
-  if a.len == 0 or b < 0:
-    return (ok: false, value: "")
-  var carry = 0'i64
-  var digits = ""
-  for i in countdown(a.len - 1, 0):
-    let d = (a[i].ord - '0'.ord).int64 * b + carry
-    carry = d div 10
-    digits.add $(d mod 10)
-  while carry > 0:
-    digits.add $(carry mod 10)
-    carry = carry div 10
-  var result = ""
-  for i in countdown(digits.len - 1, 0):
-    result.add digits[i]
-  let trimmed = result.strip(chars = {'0'})
-  if trimmed.len == 0:
-    return (ok: true, value: "0")
-  (ok: true, value: trimmed)
+  ## is exact for every capacity that fits in `int64`. Only the **leading**
+  ## zeros are trimmed: a trailing zero is a significant digit, so
+  ## `1000 * 512` is `512000` and not `512`.
+  let product = dec.mulSmall(a, b)
+  (ok: product.ok, value: product.value)
 
 proc addOne*(a: string): tuple[ok: bool, value: string] =
   ## Add one to an exact decimal string, with a check.
-  if a.len == 0:
-    return (ok: false, value: "")
-  var carry = 1
-  var digits = ""
-  for i in countdown(a.len - 1, 0):
-    let d = (a[i].ord - '0'.ord) + carry
-    carry = d div 10
-    digits.add $(d mod 10)
-  while carry > 0:
-    digits.add $(carry mod 10)
-    carry = carry div 10
-  var result = ""
-  for i in countdown(digits.len - 1, 0):
-    result.add digits[i]
-  let trimmed = result.strip(chars = {'0'})
-  if trimmed.len == 0:
-    return (ok: true, value: "0")
-  (ok: true, value: trimmed)
+  let sum = dec.addOne(a)
+  (ok: sum.ok, value: sum.value)
 
 proc decodeCapacity*(lastLba: string, blockLength: int,
-                     protEn = 0, pType = 0,
+                     protection: ProtectionEvidence = ProtectionEvidence(),
                      protectionExponent = -1,
                      physicalBlockExponent = -1): CapacityReading =
   ## Decode a READ CAPACITY(16) response.
@@ -146,11 +179,16 @@ proc decodeCapacity*(lastLba: string, blockLength: int,
   ## `logical_blocks * logical_block_length`. Both are computed with
   ## checked exact arithmetic; the values are carried as decimal strings
   ## so that a capacity beyond 2^53 bytes keeps every digit.
+  ##
+  ## The protection evidence is passed in as **evidence**, not as two
+  ## integers: an absent field is absent, and it never becomes a zero.
   result.lastLogicalBlockAddress = lastLba
   result.logicalBlockLength = blockLength
-  result.protectionEnabled = protEn
-  result.protectionTypeRaw = pType
-  result.protectionType = mapProtection(protEn, pType)
+  if protection.protEnPresent:
+    result.protectionEnabled = protection.protEn
+  if protection.pTypePresent:
+    result.protectionTypeRaw = protection.pType
+  result.protectionType = mapProtectionEvidence(protection)
   result.protectionExponent = protectionExponent
   result.physicalBlockExponent = physicalBlockExponent
 
@@ -205,16 +243,48 @@ proc capacityObservations*(reading: CapacityReading, source: string,
     reason: (if reading.capacityBytes.len > 0: ""
              else: "the capacity could not be computed exactly"))
   result.add Observation(name: "protection.enabled",
-    status: osObserved, value: $reading.protectionEnabled, unit: "boolean",
-    source: source, sourceField: "prot_en", collectedAt: collectedAt)
+    status: (if reading.protectionType == ptMissing: osUnavailable
+             elif reading.protectionType == ptInvalid: osInvalid
+             else: osObserved),
+    value: (if reading.protectionType == ptMissing or
+             reading.protectionType == ptInvalid: ""
+            else: $reading.protectionEnabled),
+    unit: "boolean",
+    source: source, sourceField: "prot_en", collectedAt: collectedAt,
+    reason: (if reading.protectionType == ptMissing:
+               "the tool did not report the protection enable field"
+             elif reading.protectionType == ptInvalid:
+               "the tool reported a protection enable value outside the " &
+               "defined range"
+             else: ""))
   result.add Observation(name: "protection.raw_type",
-    status: osObserved, value: $reading.protectionTypeRaw, unit: "code",
-    source: source, sourceField: "p_type", collectedAt: collectedAt)
+    status: (if reading.protectionType == ptMissing: osUnavailable
+             elif reading.protectionType == ptInvalid: osInvalid
+             else: osObserved),
+    value: (if reading.protectionType == ptMissing or
+             reading.protectionType == ptInvalid: ""
+            else: $reading.protectionTypeRaw),
+    unit: "code",
+    source: source, sourceField: "p_type", collectedAt: collectedAt,
+    reason: (if reading.protectionType == ptMissing:
+               "the tool did not report the protection type field"
+             elif reading.protectionType == ptInvalid:
+               "the tool reported a protection type value outside the " &
+               "defined range"
+             else: ""))
   result.add Observation(name: "protection.type",
     status: (if reading.protectionType == ptReserved: osUnsupported
+             elif reading.protectionType == ptMissing: osUnavailable
+             elif reading.protectionType == ptInvalid: osInvalid
              else: osDerived),
     value: protectionTypeName(reading.protectionType), unit: "type",
     source: source, sourceField: "prot_en + p_type", collectedAt: collectedAt,
     reason: (if reading.protectionType == ptReserved:
                "the protection combination is reserved and is not supported"
+             elif reading.protectionType == ptMissing:
+               "the protection state was not observed, so no protection " &
+               "type is claimed"
+             elif reading.protectionType == ptInvalid:
+               "the protection fields were outside the defined range, so " &
+               "no protection type is claimed"
              else: ""))

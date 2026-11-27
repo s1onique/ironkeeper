@@ -175,6 +175,24 @@ type
     serial*: string
     firmware*: string
     wwn*: string
+      ## The effective world-wide name of the device.
+      ##
+      ## When the sysfs and the udev observations disagree, this field
+      ## carries the sysfs observation and the conflict is reported; a
+      ## conflict is never resolved by silently discarding one source.
+    wwnSysfs*: string
+      ## The world-wide name as the kernel reported it.
+    wwnUdev*: string
+      ## The world-wide name as udev reported it.
+    namespaceIds*: seq[string]
+      ## The persistent identifiers of an NVMe **namespace**.
+    controllerSerial*: string
+      ## The serial number of an NVMe **controller**.
+      ##
+      ## A controller serial is not a namespace identifier: two namespaces
+      ## behind one controller share it.
+    diskSequence*: string
+      ## The kernel disk sequence number, when the kernel reported one.
     capacityBytes*: string
       ## Capacity in bytes, as an exact canonical decimal string.
     logicalBlockSize*: int

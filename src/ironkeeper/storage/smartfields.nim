@@ -5,9 +5,20 @@
 ##   * a plain JSON number, for example `"hours": 42015`;
 ##   * a **decimal string**, used by `smartctl` for values that do not fit
 ##     into a JSON number, for example `"value": "18446744073709551616"`;
-##   * a **raw companion**, for example `"value_raw": "0x10000000000000000"`,
-##     which `smartctl` emits beside a value that is too large for a
-##     64-bit integer.
+##   * the **`KEY_s` and `KEY_le` companions**, which `smartctl` emits
+##     beside a value that may exceed the JSON safe integer range.
+##
+## ## The companions that actually exist
+##
+## With the verbose JSON option (`--json=ov`, smartmontools 7.4 and
+## later) `smartctl` emits, for a value that may exceed 53 bits, the
+## number itself under `KEY`, the exact decimal value as a string under
+## `KEY_s`, and - for a value that exceeds 64 bits - the raw bytes as a
+## little-endian byte array under `KEY_le` (`smartmontools/json.cpp`).
+##
+## These are the companions the module reads. A companion that the tool
+## did not emit is simply absent; a field with a different name is an
+## **unrelated** field and never participates in the comparison.
 ##
 ## This module reads a value together with its companion and reports what
 ## it found, so that the normalisation layer can consume a value only when
@@ -17,7 +28,8 @@
 import std/strutils
 
 from ironkeeper/storage/externaljson import ExtNode, member, asString,
-  exactIntegerText, hexToDecimal, ekNumber, ekString
+  exactIntegerText, ekNumber, ekString, ekArray
+from ironkeeper/json/exactdecimal import leBytesToDecimal
 from ironkeeper/storage/types import Observation, ObservationStatus, osObserved,
   osUnavailable, osInvalid, osConflicting
 
@@ -33,11 +45,12 @@ type
 proc readExactField*(parent: ExtNode, key: string): ExactValue =
   ## Read one numeric field, with its companion representations.
   ##
-  ## The field may be a JSON number or a decimal string. When a companion
-  ## `key_raw` (a hexadecimal string) or `key_hex` is present, it is
-  ## compared with the value. A disagreement is reported as
-  ## `osConflicting`; a companion that cannot be interpreted is reported as
-  ## `osInvalid`.
+  ## The field may be a JSON number or a decimal string. The companion
+  ## `KEY_s` (the exact decimal value as a string) and the companion
+  ## `KEY_le` (the raw bytes as a little-endian byte array) are compared
+  ## with the value when they are present. A disagreement is reported as
+  ## `osConflicting`; a companion that cannot be interpreted is reported
+  ## as `osInvalid`.
   result.status = osUnavailable
   let node = member(parent, key)
   if node.isNil:
@@ -62,33 +75,55 @@ proc readExactField*(parent: ExtNode, key: string): ExactValue =
     result.reason = key & " is not a number"
     return
 
-  # ---- the companions ------------------------------------------------------
-  for companion in ["_raw", "_hex"]:
-    let other = member(parent, key & companion)
-    if other.isNil:
-      continue
-    let otherText = asString(other)
-    if otherText.len == 0:
+  # ---- the `KEY_s` companion ------------------------------------------------
+  # The exact decimal value as a string. It must agree with the value.
+  let stringCompanion = member(parent, key & "_s")
+  if not stringCompanion.isNil:
+    if stringCompanion.kind != ekString:
       result.status = osInvalid
-      result.reason = key & companion & " is empty"
+      result.reason = key & "_s is not a string"
       return
-    var otherDecimal = ""
-    if otherText.startsWith("0x") or otherText.startsWith("0X"):
-      otherDecimal = hexToDecimal(otherText[2 .. ^1])
-      if otherDecimal.len == 0:
-        result.status = osInvalid
-        result.reason = key & companion & " is not a hexadecimal number"
-        return
-    else:
-      otherDecimal = exactIntegerText(otherText)
-      if otherDecimal.len == 0:
-        result.status = osInvalid
-        result.reason = key & companion & " is not an exact decimal integer"
-        return
-    if otherDecimal != text:
+    let companionText = exactIntegerText(stringCompanion.str)
+    if companionText.len == 0:
+      result.status = osInvalid
+      result.reason = key & "_s is not an exact decimal integer"
+      return
+    if companionText != text:
       result.status = osConflicting
-      result.reason = key & " and its companion " & key & companion &
-        " disagree"
+      result.reason = key & " and its companion " & key & "_s disagree"
+      return
+
+  # ---- the `KEY_le` companion ------------------------------------------------
+  # The raw bytes as a little-endian byte array. It must agree with the
+  # value as well.
+  let byteCompanion = member(parent, key & "_le")
+  if not byteCompanion.isNil:
+    if byteCompanion.kind != ekArray:
+      result.status = osInvalid
+      result.reason = key & "_le is not an array of bytes"
+      return
+    var bytes: seq[int] = @[]
+    for item in byteCompanion.items:
+      if item.kind != ekNumber:
+        result.status = osInvalid
+        result.reason = key & "_le contains a non-numeric byte"
+        return
+      var byteValue = 0
+      try:
+        byteValue = parseInt(item.str)
+      except ValueError:
+        result.status = osInvalid
+        result.reason = key & "_le contains a byte that is not an integer"
+        return
+      bytes.add byteValue
+    let decimal = leBytesToDecimal(bytes)
+    if not decimal.ok:
+      result.status = osInvalid
+      result.reason = key & "_le is malformed: " & decimal.reason
+      return
+    if decimal.value != text:
+      result.status = osConflicting
+      result.reason = key & " and its companion " & key & "_le disagree"
       return
 
   result.ok = true

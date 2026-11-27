@@ -41,7 +41,8 @@ from ironkeeper/storage/types import DeviceRecord, Inventory, Identity,
   IdentityConfidence, Identifier, IdentifierKind, IdentifierNamespace,
   icAuthoritative, icProbable, icAmbiguous, icUnresolved, ikScsiWwn,
   ikAtaWwn, ikNguid, ikEui64, ikNvmeUuid, ikSerial, ikDiskSeq, inLogicalUnit,
-  inNamespace, inController, dcPhysical
+  inNamespace, inController, dcPhysical, confidenceName, identifierKindName,
+  identifierNamespaceName
 
 type
   SelectorKind* = enum
@@ -117,6 +118,26 @@ proc identifierOfWwn(raw: string): Identifier =
   Identifier(kind: ikScsiWwn, namespace: inLogicalUnit, value: canonical,
              original: raw, source: "sysfs:wwid")
 
+proc isUsableWwn*(raw: string): bool =
+  ## True when the text is a usable persistent identifier.
+  ##
+  ## A usable identifier is a nonempty hexadecimal string of at least
+  ## eight digits. A sentinel value - an identifier that is only zeros -
+  ## is **not** usable: it names nothing, and treating it as a name
+  ## would give a device an identity that it does not have.
+  let canonical = canonicalizeWwn(raw)
+  if canonical.len < 8:
+    return false
+  for ch in canonical:
+    if ch notin {'0' .. '9'} and ch notin {'a' .. 'f'}:
+      return false
+  var allZero = true
+  for ch in canonical:
+    if ch != '0':
+      allZero = false
+      break
+  not allZero
+
 proc reconcile*(inv: var Inventory) =
   ## Reconcile the identities of every discovered device.
   ##
@@ -151,13 +172,27 @@ proc reconcile*(inv: var Inventory) =
                             conflicts: @[], duplicateSerial: false)
     let d = inv.devices[i]
 
+    # ---- the world-wide name ------------------------------------------------
+    # The kernel observation and the udev observation are compared, not
+    # merged by precedence. A disagreement is a contradiction.
+    if d.wwnSysfs.len > 0 and d.wwnUdev.len > 0:
+      let fromSysfs = canonicalizeWwn(d.wwnSysfs)
+      let fromUdev = canonicalizeWwn(d.wwnUdev)
+      if fromSysfs != fromUdev:
+        identity.conflicts.add "the kernel and udev report different " &
+          "world-wide names for " & d.kernelName
     if d.wwn.len > 0:
-      let identifier = identifierOfWwn(d.wwn)
-      identity.identifiers.add identifier
-      if d.deviceClass == dcPhysical and
-         wwnCounts.getOrDefault(identifier.value) > 1:
-        identity.conflicts.add "the world-wide name " & identifier.value &
-          " is carried by more than one device"
+      if isUsableWwn(d.wwn):
+        identity.identifiers.add identifierOfWwn(d.wwn)
+        if d.deviceClass == dcPhysical and
+           wwnCounts.getOrDefault(canonicalizeWwn(d.wwn)) > 1:
+          identity.conflicts.add "the world-wide name " &
+            canonicalizeWwn(d.wwn) & " is carried by more than one device"
+      else:
+        identity.conflicts.add "the world-wide name of " & d.kernelName &
+          " is not a usable persistent identifier"
+
+    # ---- the serial number --------------------------------------------------
     if d.serial.len > 0:
       let key = canonicalizeSerial(d.serial)
       identity.identifiers.add Identifier(
@@ -168,11 +203,43 @@ proc reconcile*(inv: var Inventory) =
         identity.conflicts.add "the serial number " & d.serial &
           " is carried by more than one device"
 
-    # A world-wide name is authoritative for a logical unit. For an NVMe
-    # namespace, the kernel's `wwid` names the *namespace*; a controller
-    # serial does not, so it never becomes an authoritative namespace
-    # identity.
-    if identity.identifiers.len > 0 and identity.identifiers[0].kind == ikScsiWwn:
+    # ---- the disk sequence number -------------------------------------------
+    # The disk sequence number names the **registration**, not the
+    # hardware. It is a weak identifier and never becomes authoritative.
+    if d.diskSequence.len > 0:
+      identity.identifiers.add Identifier(
+        kind: ikDiskSeq, namespace: inLogicalUnit,
+        value: d.diskSequence, original: d.diskSequence,
+        source: "sysfs:diskseq")
+
+    # ---- the NVMe namespace identity -----------------------------------------
+    # The namespace identifiers name the **namespace**. The controller
+    # serial names the **controller**, and two namespaces behind one
+    # controller share it - which is therefore not a contradiction and
+    # never a namespace identity.
+    for nsId in d.namespaceIds:
+      identity.identifiers.add Identifier(
+        kind: ikNguid, namespace: inNamespace, value: nsId,
+        original: nsId, source: "sysfs:namespace")
+    if d.controllerSerial.len > 0:
+      identity.identifiers.add Identifier(
+        kind: ikSerial, namespace: inController,
+        value: canonicalizeSerial(d.controllerSerial),
+        original: d.controllerSerial, source: "sysfs:udev")
+
+    # ---- the confidence ------------------------------------------------------
+    # A world-wide name is authoritative for a logical unit when it is a
+    # **usable** identifier. An arbitrary nonempty string is not an
+    # identity: it earns no authority at all.
+    var authoritative = false
+    for id in identity.identifiers:
+      if id.namespace == inNamespace and id.kind in {ikNguid, ikEui64,
+                                                      ikNvmeUuid}:
+        authoritative = true
+      elif id.namespace == inLogicalUnit and id.kind == ikScsiWwn and
+           isUsableWwn(id.value):
+        authoritative = true
+    if authoritative:
       identity.confidence = icAuthoritative
     elif d.serial.len > 0:
       identity.confidence = icProbable
@@ -184,6 +251,25 @@ proc reconcile*(inv: var Inventory) =
 
     inv.devices[i].identity = identity
 
+
+proc identityFingerprint*(device: DeviceRecord): string =
+  ## A fingerprint of the identity of a device.
+  ##
+  ## The fingerprint covers the confidence, the identifiers and the path
+  ## evidence, not only the kernel name and the device numbers. A device
+  ## that was replaced by another device with the same kernel name, the
+  ## same device numbers and the same world-wide name still differs in
+  ## its disk sequence number, in its serial number and in its confidence.
+  result = device.kernelName & "|" & device.major & ":" & device.minor & "|" &
+           device.wwn & "|" & device.serial & "|" & device.diskSequence & "|" &
+           confidenceName(device.identity.confidence)
+  for id in device.identity.identifiers:
+    result.add "|id:" & identifierKindName(id.kind) & ":" &
+               identifierNamespaceName(id.namespace) & ":" & id.value
+  for p in device.paths:
+    result.add "|path:" & p
+  for a in device.aliases:
+    result.add "|alias:" & a
 
 proc selectDevice*(inv: Inventory, selector: Selector): SelectionResult =
   ## Resolve an explicit selector against the discovered inventory.
