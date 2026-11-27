@@ -67,15 +67,18 @@ mutate() {
 
 # The unit suite is rebuilt for every mutation, because the mutation is in
 # the production code that the suite exercises.
+# The builds of this gate share **one** compilation cache. Every mutation
+# changes a single module, so the incremental build recompiles that module
+# and its dependents instead of the whole tree. The gate stays inside the
+# time budget of the CI job.
+NIMCACHE="$WORK/nimcache"
+mkdir -p "$NIMCACHE"
+
 build_unit() {
-  local nimcache
-  nimcache="$(mktemp -d)"
-  $NIM c --mm:orc --hints:off --nimcache:"$nimcache" --path:src \
+  $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE" --path:src \
     --path:tests/unit "${DEPS_ARG[@]}" \
     -o:"$WORK/unit_tests" tests/unit/all_unit_tests.nim > "$WORK/build.log" 2>&1
-  local status=$?
-  rm -rf "$nimcache"
-  return $status
+  return $?
 }
 
 # expect_unit_failure <label> <expected-witness-phrase>
@@ -220,28 +223,22 @@ restore
 # The compiled-CLI suite is built for the mutations that change the
 # behaviour of the shipped binary.
 build_integration() {
-  local nimcache
-  nimcache="$(mktemp -d)"
   # The compiled-CLI suite exercises the **shipped binaries**, so both
   # variants are rebuilt for the mutation.
-  $NIM c --mm:orc --hints:off --nimcache:"$nimcache" --path:src \
+  $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE" --path:src \
     "${DEPS_ARG[@]}" -o:"$WORK/ironkeeper" src/ironkeeper.nim \
-    > "$WORK/build.log" 2>&1 || { rm -rf "$nimcache"; return 1; }
-  $NIM c --mm:orc --hints:off --nimcache:"$nimcache" -d:ironkeeperTesting \
+    > "$WORK/build.log" 2>&1 || return 1
+  $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE" -d:ironkeeperTesting \
     --path:src "${DEPS_ARG[@]}" -o:"$WORK/ironkeeper-testing" src/ironkeeper.nim \
-    >> "$WORK/build.log" 2>&1 || { rm -rf "$nimcache"; return 1; }
-  $NIM c --mm:orc --hints:off --nimcache:"$nimcache" --path:src \
+    >> "$WORK/build.log" 2>&1 || return 1
+  $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE" --path:src \
     --path:tests/unit --path:tests/contract --path:tests/integration \
     "${DEPS_ARG[@]}" -o:"$WORK/integration_tests" \
-    tests/integration/all_integration_tests.nim >> "$WORK/build.log" 2>&1
-  local status=$?
-  rm -rf "$nimcache"
-  if [ "$status" -eq 0 ]; then
-    mkdir -p "$ROOT/build"
-    cp "$WORK/ironkeeper" "$ROOT/build/ironkeeper"
-    cp "$WORK/ironkeeper-testing" "$ROOT/build/ironkeeper-testing"
-  fi
-  return $status
+    tests/integration/all_integration_tests.nim >> "$WORK/build.log" 2>&1 || return 1
+  mkdir -p "$ROOT/build"
+  cp "$WORK/ironkeeper" "$ROOT/build/ironkeeper"
+  cp "$WORK/ironkeeper-testing" "$ROOT/build/ironkeeper-testing"
+  return 0
 }
 
 # expect_integration_failure <label> <expected-witness-phrase>
