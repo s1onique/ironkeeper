@@ -162,6 +162,28 @@ jobs:
       - name: Fault-inject the production gates
         run: tools/gate_fault_injection.sh
 
+      # The bootstrap that installs the toolchain is the one the CI job
+      # itself uses, and the regression check exercises it against a
+      # synthetic toolchain. The predecessor ACT failed in CI because the
+      # bootstrap appended the toolchain directory to `$PATH` as if PATH
+      # were a file.
+      - name: Check the CI toolchain bootstrap
+        run: tools/gate_ci_bootstrap.sh
+
+      # The requalification decision decides whether the validator
+      # qualification has to run. A decision that says "not needed" when
+      # the change evidence is missing would silently skip a mandatory
+      # qualification, so the decision is exercised here against small
+      # temporary repositories.
+      - name: Check the requalification decision
+        run: tools/gate_requalification_decision.sh
+
+      # The qualification consumes the corpus *and* the remote schemas of
+      # the pinned suite. The check proves that a changed remote input is
+      # detected and that a malformed remote schema is refused.
+      - name: Check the qualification input integrity
+        run: tools/gate_remote_schema_integrity.sh
+
       # The independent validator is installed into a dedicated virtual
       # environment in its own step, and every step that uses it refers
       # to it by absolute path. A bare `pip install` places the console
