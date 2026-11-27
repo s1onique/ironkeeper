@@ -72,7 +72,8 @@ mutate() {
 # and its dependents instead of the whole tree. The gate stays inside the
 # time budget of the CI job.
 NIMCACHE="$WORK/nimcache"
-mkdir -p "$NIMCACHE"
+NIMCACHE_TESTING="$WORK/nimcache-testing"
+mkdir -p "$NIMCACHE" "$NIMCACHE_TESTING"
 
 build_unit() {
   $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE" --path:src \
@@ -225,11 +226,16 @@ restore
 build_integration() {
   # The compiled-CLI suite exercises the **shipped binaries**, so both
   # variants are rebuilt for the mutation.
+  #
+  # The two variants use **separate** compilation caches: they differ in
+  # their compile-time definition, and a shared cache would let one
+  # variant reuse the objects of the other.
   $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE" --path:src \
     "${DEPS_ARG[@]}" -o:"$WORK/ironkeeper" src/ironkeeper.nim \
     > "$WORK/build.log" 2>&1 || return 1
-  $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE" -d:ironkeeperTesting \
-    --path:src "${DEPS_ARG[@]}" -o:"$WORK/ironkeeper-testing" src/ironkeeper.nim \
+  $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE_TESTING" \
+    -d:ironkeeperTesting --path:src "${DEPS_ARG[@]}" \
+    -o:"$WORK/ironkeeper-testing" src/ironkeeper.nim \
     >> "$WORK/build.log" 2>&1 || return 1
   $NIM c --mm:orc --hints:off --nimcache:"$NIMCACHE" --path:src \
     --path:tests/unit --path:tests/contract --path:tests/integration \
@@ -353,6 +359,20 @@ mutate src/ironkeeper/storage/smartstatus.nim "$WORK/mutate_bitmask2.py"
 build_unit
 expect_unit_failure smart-bitmask-2 "the bit 8 is decoded independently"
 restore
+
+echo "=== the shipped binaries are the restored ones ==="
+# The mutations above rebuilt the shipped binaries from a mutated source.
+# The restored implementation must be the one that the later gates of the
+# job consume, so both variants are rebuilt from the restored sources and
+# installed again.
+build_unit
+build_integration
+if [ ! -x "$ROOT/build/ironkeeper" ] || [ ! -x "$ROOT/build/ironkeeper-testing" ]; then
+  echo "gate: FAIL restored-binaries: the shipped binaries were not restored" >&2
+  FAILED+=("restored-binaries")
+else
+  echo "gate: ok   restored-binaries (the shipped binaries are the restored ones)"
+fi
 
 echo "=== the restored implementation is green ==="
 build_unit
