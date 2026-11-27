@@ -165,6 +165,13 @@ an operator explicitly asked for.
 * Identifier formats are canonicalised (`naa.5000c50001234567`,
   `0x5000c50001234567` and the bare hex digits denote the same
   identifier), and the original value is preserved alongside it.
+* The **sysfs** observation of a world-wide name and the **udev**
+  observation are kept separately and compared. A disagreement is a
+  **contradiction**: it is never resolved by discarding one source.
+* An identifier is validated before it is used. A value that is not
+  hexadecimal, that is too short, or that consists only of zeros is **not
+  a usable identifier**: it earns no authority at all, and the device is
+  reported as ambiguous rather than as authoritative.
 * Aliases are deduplicated.
 * Conflicting identifiers, duplicated serials and duplicated WWNs are
   detected and make the identity **ambiguous**.
@@ -172,17 +179,54 @@ an operator explicitly asked for.
 * `/dev/sdX` is never treated as a stable physical identifier.
 * A multipath device is not probed repeatedly through every alias.
 
+### The confidence of an identity
+
+An identity is **authoritative** only when a *usable* persistent
+identifier was observed: the logical-unit WWN of a SCSI device, the ATA
+WWN, or the NGUID, the EUI-64 or the UUID of an NVMe namespace. An
+arbitrary nonempty string is not an identity, and the mere presence of a
+world-wide name does not confer authority.
+
+The **disk sequence number** names the *registration* of the device, not
+the hardware. It is preserved as an identifier of its own kind and never
+confers authority; it is compared during an interrogation because it
+changes when a device is replaced.
+
+A serial number is a *weak* identifier: it yields a **probable**
+identity and never an authoritative one. A serial that two devices carry
+makes both of them ambiguous.
+
+For an NVMe device the serial belongs to the **controller**. It is
+therefore kept in the controller namespace, it never becomes a namespace
+identity, and two namespaces behind one controller are **not** a
+contradiction. A physical disk and a partition that inherits its
+identifier are not two devices with a duplicate identifier: only the
+physical disk candidates take part in the duplicate detection.
+
 An ambiguous identity **refuses** the active interrogation. Full
 multipath management is not implemented in M1.
 
 ### Identity changes during an interrogation
 
 The identity and the access paths are captured immediately before and
-immediately after each backend invocation, and the major/minor and disk
-sequence information are compared where they are available. A detected
-change invalidates the attribution of the affected observations: the raw
-response is retained as **unbound** evidence and is not attached to the
-originally selected disk.
+immediately after **each** backend invocation. The comparison covers the
+kernel name, the device numbers, the world-wide name, the serial number,
+the disk sequence number, the confidence, the identifiers and the path
+evidence.
+
+Four outcomes refuse the attribution, and the raw response is retained as
+**unbound** evidence in every one of them:
+
+| Outcome | Consequence |
+|---|---|
+| the device disappeared | the attribution is refused |
+| the device was replaced | the attribution is refused |
+| the rediscovery did not complete | the attribution is refused: an incomplete rediscovery cannot establish an unchanged identity |
+| the tool reported a contradictory identity | the attribution is refused |
+
+A detected change also **prevents** the subsequent active commands: the
+collection does not continue against a target whose identity is in
+doubt.
 
 **The limitation is explicit.** The tools are executed by pathname, so
 the pre/post checks do **not** provide handle-bound identity guarantees
@@ -204,10 +248,23 @@ external process.
   **independently**.
 * Both streams are drained concurrently, so a tool that fills one pipe
   while the parent fills the other cannot deadlock.
-* A **monotonic** wall-clock deadline is enforced.
+* A **monotonic** wall-clock deadline is enforced, and it stays
+  authoritative **after** the pipes reach end of file: a child that
+  closes both streams and keeps running is still terminated at the
+  deadline.
+* Each poll descriptor carries the **identity of its stream**, so the
+  capture of the standard error never ends up in the standard output.
+* A **failed launch** is distinguished from a program that ran and
+  exited with status 127: the child reports the launch error through a
+  close-on-exec pipe, and the parent sees end of file when the program
+  started.
 * On a timeout or an output-limit violation the whole **process group**
   is terminated, so no descendant is left running, and the child is
-  always **reaped**.
+  always **reaped**. A child that cannot be reaped within the
+  supported policy is reported with an **unresolved process state**; the
+  result never claims a clean completion. A `SIGKILL` is a request and
+  not a guarantee: a task that is blocked in uninterruptible kernel I/O
+  does not die from it.
 * The outcome is classified: `succeeded`, `non_zero_exit`, `timed_out`,
   `launch_failed`, `output_limit_exceeded`, `signalled`.
 
@@ -222,10 +279,27 @@ A timeout or an output-limit violation is **never** a successful
 complete observation.
 
 The executable paths are fixed (`/usr/sbin/smartctl`,
-`/usr/bin/sg_readcap`). The test harness injects a controlled executable
-through the `IRONKEEPER_TEST_TOOL_DIR` seam; no CLI option or
-configuration file can make an ordinary invocation execute an arbitrary
-program.
+`/usr/bin/sg_readcap`).
+
+### The test seam is a compile-time property
+
+The test harness injects a controlled executable through the
+`IRONKEEPER_TEST_TOOL_DIR` seam and points the discovery at a synthetic
+tree through `IRONKEEPER_SYSFS_ROOT`, `IRONKEEPER_DEV_ROOT` and
+`IRONKEEPER_UDEV_ROOT`. Those seams exist **only** in a binary that was
+compiled with the `ironkeeperTesting` definition:
+
+| Build | Definition | Tool seam | Discovery roots | Use |
+|---|---|---|---|---|
+| `build/ironkeeper` | none | ignored | the real roots | the shipped artefact |
+| `build/ironkeeper-testing` | `ironkeeperTesting` | honoured | the synthetic roots | the compiled-CLI tests |
+
+A production binary therefore does not read those variables at all: an
+environment variable cannot make it execute an arbitrary program or point
+it at a synthetic tree. The two binaries are never interchangeable - each
+one reports its own variant through `ironkeeper version --json`, and the
+variant is recorded in the CI artefact metadata. All hardware
+qualification uses the production variant.
 
 ## SMART acquisition
 
@@ -248,21 +322,26 @@ that M1 does not normalise.
 The exit status of `smartctl` is a **bitmask**, and all eight bits are
 decoded while the original numeric status is preserved:
 
-| Bit | Meaning (as documented by the tool) |
-|---|---|
-| 0 | the command line did not parse |
-| 1 | the device could not be opened, or the device is not a SMART device |
-| 2 | some SMART or other ATA command failed |
-| 3 | the device reported a failing (prefail) condition |
-| 4 | a prefail attribute is above its threshold |
-| 5 | the SMART error log contains errors |
-| 6 | the SMART self-test log contains errors |
-| 7 | other, lower-level errors |
+| Bit | Upstream name | Meaning |
+|---|---|---|
+| 0 | `FAILCMD` | the command line did not parse, or an internal error occurred |
+| 1 | `FAILDEV` / `FAILPOWER` / `FAILID` | the device could not be opened, identified, or was in a power state that forbids the command |
+| 2 | `FAILSMART` | a SMART or other device command failed |
+| 3 | `FAILSTATUS` | the device reported a failing SMART status |
+| 4 | `FAILATTR` | a prefail attribute is at or below its threshold **now** |
+| 5 | `FAILAGE` | an attribute failed **in the past** |
+| 6 | `FAILERR` | the error log contains error records |
+| 7 | `FAILLOG` | the self-test log contains error records |
 
-The tool documents bits 3 to 6 in the terms of the ATA protocol. They do
-**not** mean the same thing for SCSI and NVMe, so the decoded bits are
-observations with a protocol caveat, not verdicts. Bit 7 is decoded as
-"other lower-level errors" and is not interpreted further.
+These are the definitions of `smartmontools/smartctl.h`. The tool
+documents the bits in the terms of the ATA protocol; they do **not** mean
+the same thing for SCSI and NVMe, so the decoded bits are observations
+with a protocol caveat, not verdicts.
+
+A status that **no process produced** - the synthetic `-1` of a launch
+failure or the placeholder of a timeout - carries no bits at all. It is
+never decoded as a bitmask; the absence of an exit status is reported as
+an unavailable observation, never as eight `false` bits.
 
 A nonzero status may accompany useful, successfully acquired health
 evidence: exit bit 3 reports a *device-reported failing condition*, which
@@ -304,21 +383,25 @@ as a duplicate.
 
 ### Companion representations
 
-`smartctl` writes a large counter in more than one form: as a decimal
-string, and - when the value does not fit into a 64-bit integer - as a
-hexadecimal companion such as `data_units_read_raw: "0x1000..."`. The
-normalisation layer compares the representations. A disagreement is
-reported as a **conflicting** observation and a finding; it is never
-silently resolved in favour of one of them.
+`smartctl` writes a large counter in more than one form. With the
+verbose JSON option it emits the number under `KEY`, the exact decimal
+value as a string under `KEY_s`, and - for a value that exceeds 64 bits
+- the raw bytes as a little-endian byte array under `KEY_le`
+(`smartmontools/json.cpp`). The byte at index `i` carries the weight
+`256^i`.
 
-The numeric witnesses exercised by the test suite are `0`,
-`9007199254740991`, `9007199254740992`, `9007199254740993`,
-`18446744073709551615`, `18446744073709551616` and
-`340282366920938463463374607431768211455`, together with a large number
-in an unrelated vendor field, a numeric and decimal-string companion
-agreement, a companion disagreement, a missing companion, an invalid
-decimal representation, duplicate JSON keys, invalid UTF-8 and
-conflicting normalised identifier fields.
+The normalisation layer reads exactly these companions. A disagreement
+between the value and any companion that is present is reported as a
+**conflicting** observation and a finding; it is never silently resolved
+in favour of one of them. A companion that cannot be interpreted is
+reported as an **invalid** observation. A member with a different name is
+an unrelated field and never participates in the comparison.
+
+The numeric witnesses exercised by the test suite are the agreement of a
+value with its `KEY_s` companion, the disagreement of the two, a valid
+little-endian companion, a contradictory little-endian companion, a
+malformed companion, a 128-bit counter with every representation, and a
+large number in an unrelated vendor field.
 
 ## SCSI capacity and protection
 
@@ -352,6 +435,25 @@ The raw `PROT_EN` and `P_TYPE` fields are **not** the protection type:
 Both raw fields are retained next to the derived value, and a reserved
 combination is reported as **unsupported**: it is never silently mapped
 onto Type 0.
+
+A response that carries **no** `PROT_EN` field carries no protection
+information. Such a response is not evidence of disabled protection, and
+the decoder therefore distinguishes four states that the earlier
+implementation collapsed into one:
+
+| State | Meaning |
+|---|---|
+| `missing` | the tool did not report the field |
+| `invalid` | the tool reported a value outside the defined range |
+| `reserved_unsupported` | the tool reported a combination the standard reserves |
+| a normalized type | the tool reported a valid combination |
+
+Type 0 is derived **only** from an observed `PROT_EN` of zero.
+
+The arithmetic conserves every digit. The exact decimal primitive of
+`src/ironkeeper/json/exactdecimal.nim` trims the **leading** zeros only:
+a trailing zero is a significant digit, so the last logical block
+address 999 with a block length of 512 is 512000 bytes and not 512.
 
 `sg_format` and every other modifying operation are never invoked.
 
@@ -428,11 +530,27 @@ capacity.stderr
 ```
 
 The bundle lives in a **unique, invocation-owned** directory below the
-supplied parent. A caller-owned file is never overwritten and a
-caller-owned directory is never removed. The files are written with
-restrictive permissions. The manifest is published **after** the
-artefacts it references are finalised, and it records the exact byte
-length and the SHA-256 digest of every artefact.
+supplied parent, and the ownership is established **atomically**:
+
+* the directory is created with mode 0700 **at creation**, so that it is
+  never observable with wider permissions, and the creation is
+  exclusive - a name collision is resolved by the kernel and not by a
+  check-then-create race;
+* every artefact is created with `O_EXCL`, so an existing file is never
+  overwritten and a symlink is never followed;
+* the identity (device number and inode number) of the parent directory
+  is checked before and after the export, so that a caller-controlled
+  replacement of the parent cannot silently redirect the write;
+* the manifest is published **after** the artefacts it references are
+  finalised, and it records the exact byte length and the SHA-256 digest
+  of every artefact. A bundle without a manifest is a partial export,
+  and it never masquerades as a complete one.
+
+The observation document and the evidence manifest are validated against
+the repository contracts at the production boundary, **before** they are
+published. The stored observation document and the emitted JSON agree
+semantically, and the independent CI check validates the generated
+evidence manifest as well.
 
 A digest is an **integrity check** over the preserved bytes. It is not a
 cryptographic proof of provenance or of authenticity. Malformed or
@@ -440,3 +558,45 @@ incomplete tool output is preserved and marked as such in the manifest.
 
 Real device identities and raw homelab telemetry are never committed to
 the public repository.
+
+## The acquisition result
+
+The completeness of a collection is **not** derived from the presence of
+an execution record. A record says only that a process ran; it says
+nothing about what the process produced.
+
+`src/ironkeeper/storage/acquisition.nim` therefore keeps five things
+apart, because collapsing any two of them produces a wrong answer:
+
+1. **execution outcome** - did the process run?
+2. **requested observation coverage** - were the requested observations
+   obtained?
+3. **device-reported health** - what does the device say about itself?
+4. **attribution** - are the observations bound to the selected device?
+5. **collection completeness** - the authoritative value.
+
+The coverage is incomplete when the tool could not be launched, timed
+out or was terminated; when the output was truncated by the configured
+bound; when the response could not be ingested; when a **mandatory**
+observation of the operation is missing; when the observations contradict
+each other; or when the attribution was refused.
+
+The coverage is **not** incomplete because the device reported an
+unhealthy status - a failing disk is a device-reported health
+observation, and it may accompany a complete acquisition - or because an
+**optional** field was unavailable.
+
+The mandatory observations are:
+
+| Operation | Mandatory observations |
+|---|---|
+| SMART (ATA, SCSI) | `device_reported_health` |
+| SMART (NVMe) | `nvme.critical_warning` |
+| capacity | `capacity.total_bytes`, `capacity.logical_block_length` |
+
+The authoritative completeness value is the same in the observation
+document, the evidence manifest, the human-readable output and the
+documented exit-status policy. The dispatcher consumes the exit status
+of the command: a collection that did not obtain every requested
+observation exits with the documented input-unavailable status, and the
+document that was produced is still the machine-readable result.

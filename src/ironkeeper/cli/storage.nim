@@ -86,12 +86,13 @@ proc requireRoots*(): DiscoveryRoots =
     let sysfs = getEnv(SysfsRootEnv)
     let dev = getEnv(DevRootEnv)
     let udev = getEnv(UdevRootEnv)
-    return DiscoveryRoots(
+    DiscoveryRoots(
       sysfsRoot: (if sysfs.len > 0: sysfs else: defaults.sysfsRoot),
       devRoot: (if dev.len > 0: dev else: defaults.devRoot),
       udevDataDir: (if udev.len > 0: udev else: defaults.udevDataDir))
-  DiscoveryRoots(sysfsRoot: defaults.sysfsRoot, devRoot: defaults.devRoot,
-                 udevDataDir: defaults.udevDataDir)
+  else:
+    DiscoveryRoots(sysfsRoot: defaults.sysfsRoot, devRoot: defaults.devRoot,
+                   udevDataDir: defaults.udevDataDir)
 
 proc defaultLimits*(): ExecLimits =
   ## The default execution bounds of this invocation.
