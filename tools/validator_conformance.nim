@@ -53,11 +53,12 @@ import std/[os, tables, algorithm]
 
 from ironkeeper/qualification/corpus import readCorpus, Corpus, CorpusCase
 from ironkeeper/qualification/harness import runCorpus, QualificationReport,
-  Exclusion, failures, unauthorisedExclusions, renderSummary, Scope,
-  scUpstream, scAdapter, upstreamLimitations, mandatoryResults,
-  optionalResults
+  Exclusion, failures, unauthorisedExclusions, invalidEvidence,
+  renderSummary, productVerdict, Scope, scUpstream, scAdapter,
+  upstreamLimitations, mandatoryResults, optionalResults
 from ironkeeper/qualification/providers import newRawRegistry, rawProvider,
-  adapterProvider, subsetJudge
+  adapterProvider, subsetJudge, RemoteBaseUri
+from ironkeeper/qualification/remotes import readRemoteSchemas
 from ironkeeper/qualification/verdict import QualificationVerdict
 
 const
@@ -85,6 +86,7 @@ proc renderReport(report: QualificationReport, label: string) =
   echo "  passed=", report.passed
   echo "  failed=", failures(report).len
   echo "  unauthorised_exclusions=", unauthorisedExclusions(report).len
+  echo "  invalid_evidence=", invalidEvidence(report).len
   for line in renderSummary(report):
     echo "  ", line
   for f in failures(report):
@@ -93,6 +95,8 @@ proc renderReport(report: QualificationReport, label: string) =
          " observed=", f.observed
   for u in unauthorisedExclusions(report):
     echo "  unauthorised_exclusion: ", u.identity, " reason=", u.exclusionReason
+  for e in invalidEvidence(report):
+    echo "  invalid_evidence: ", e.identity, " reason=", e.exclusionReason
   for l in upstreamLimitations(report):
     echo "  upstream_limitation: ", l.identity,
          " expected_valid=", l.expectedValid,
@@ -156,10 +160,29 @@ proc main() =
              inc n
          n)
 
+  # ---- the remote schemas --------------------------------------------------
+  # The remote tree is part of the measured input. A remote schema that
+  # cannot be read is a problem, not a file to be passed over: the
+  # qualification refuses to run against a corpus whose references it
+  # could not resolve.
+  let remote = readRemoteSchemas(suiteDir / "remotes", RemoteBaseUri)
+  echo "remote_files=", remote.fileCount
+  echo "remote_digest_fnv1a64=", remote.digest
+  if remote.problems.len > 0:
+    echo "remote_problems=", remote.problems.len
+    for p in remote.problems:
+      echo "  remote_problem: ", p.file, ": ", p.message
+    quit(1)
+
   # ---- the raw upstream validator -----------------------------------------
   let rawRegistry = newRawRegistry(suiteDir)
-  let rawReport = runCorpus(corpus, rawProvider(rawRegistry), subsetJudge(),
-                            scUpstream)
+  if rawRegistry.problems.len > 0:
+    echo "remote_problems=", rawRegistry.problems.len
+    for p in rawRegistry.problems:
+      echo "  remote_problem: ", p
+    quit(1)
+  let rawReport = runCorpus(corpus, rawProvider(rawRegistry.registry),
+                             subsetJudge(), scUpstream)
   renderReport(rawReport, "raw-upstream")
 
   # ---- the Ironkeeper adapter ---------------------------------------------
@@ -170,16 +193,29 @@ proc main() =
   # ---- the verdict ---------------------------------------------------------
   # The qualification fails when either measurement fails. An unexplained
   # result is never tolerated.
+  # The qualification fails when the *product* qualification fails. The
+  # raw measurement is a measurement of the upstream library: a wrong
+  # answer there is a raw failure, and it is reported as such. It is
+  # accepted for the product only when it lies outside the required
+  # subset and an authorised limitation entry covers it.
   let rawVerdict = rawReport.verdict
   let adapterVerdict = adapterReport.verdict
+  let productResult = productVerdict(rawReport, adapterReport)
   echo "raw_verdict=", (if rawVerdict == qvPass: "PASS" else: "FAIL")
   echo "adapter_verdict=", (if adapterVerdict == qvPass: "PASS" else: "FAIL")
+  echo "product_verdict=", (if productResult == qvPass: "PASS" else: "FAIL")
+  echo "raw_accepted_limitations=", rawReport.acceptedLimitations.len
+  for identity in rawReport.acceptedLimitations:
+    echo "  accepted_limitation: ", identity
   # The per-class counts of the mandatory corpus, for the receipt.
   echo "raw_mandatory_cases=", mandatoryResults(rawReport).len
   echo "raw_optional_cases=", optionalResults(rawReport).len
   echo "adapter_mandatory_cases=", mandatoryResults(adapterReport).len
   echo "adapter_optional_cases=", optionalResults(adapterReport).len
-  if rawVerdict != qvPass or adapterVerdict != qvPass:
+  if (invalidEvidence(rawReport).len > 0) or
+     (invalidEvidence(adapterReport).len > 0):
+    quit(1)
+  if productResult != qvPass:
     quit(1)
   quit(0)
 

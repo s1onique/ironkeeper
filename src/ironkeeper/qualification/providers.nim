@@ -13,7 +13,7 @@
 ## raw provider answers differently from the adapter is evidence about the
 ## adapter's policy, not about the validator library.
 
-import std/[json, os, strutils, algorithm]
+import std/[json, os]
 
 import jschema
 
@@ -24,6 +24,7 @@ from ironkeeper/contracts/schemapolicy import checkSchemaPolicy
 from ironkeeper/contracts/schemarefs import checkReferencePolicy
 from ironkeeper/qualification/corpus import CorpusCase
 from ironkeeper/qualification/harness import ProviderOutcome, Exclusion
+from ironkeeper/qualification.remotes import readRemoteSchemas
 from ironkeeper/qualification/verdict import ObservedVerdict
 
 const
@@ -33,36 +34,24 @@ const
     ## schema is retrieved at `http://localhost:1234` followed by its
     ## relative path inside the `remotes` directory.
 
-proc registerRemotes(registry: SchemaRegistry, remotesDir: string): int =
-  ## Register the suite's remote schemas under their documented retrieval
-  ## URIs.
+proc newRawRegistry*(suiteDir: string): tuple[registry: SchemaRegistry,
+                                               problems: seq[string]] =
+  ## A registry for the raw provider, with the suite's remote schemas
+  ## registered.
+  ##
+  ## The remote tree is read through the repository-owned reader, which
+  ## refuses a malformed document instead of skipping it. The problems
+  ## are returned to the caller, which must refuse to qualify against a
+  ## remote tree that was not fully read.
   ##
   ## The registration is **offline**: the documents are read from the
   ## checkout. The registry never fetches, and no network access occurs.
-  if not dirExists(remotesDir):
-    return 0
-  var count = 0
-  var paths: seq[string] = @[]
-  for path in walkDirRec(remotesDir):
-    if path.endsWith(".json"):
-      paths.add path
-  paths.sort()
-  for path in paths:
-    let relative = path[remotesDir.len .. ^1].strip(chars = {'/'})
-    var doc: JsonNode
-    try:
-      doc = parseJson(readFile(path))
-    except CatchableError:
-      continue
-    registry.add(RemoteBaseUri & "/" & relative, doc)
-    inc count
-  count
-
-proc newRawRegistry*(suiteDir: string): SchemaRegistry =
-  ## A registry for the raw provider, with the suite's remote schemas
-  ## registered.
-  result = newSchemaRegistry()
-  discard registerRemotes(result, suiteDir / "remotes")
+  result.registry = newSchemaRegistry()
+  let remote = readRemoteSchemas(suiteDir / "remotes", RemoteBaseUri)
+  for problem in remote.problems:
+    result.problems.add problem.file & ": " & problem.message
+  for schema in remote.schemas:
+    result.registry.add(schema.uri, schema.document)
 
 proc rawProvider*(registry: SchemaRegistry): proc (c: CorpusCase): ProviderOutcome =
   ## The verdict of the upstream validator, with no Ironkeeper policy.
@@ -169,6 +158,20 @@ type
       ## Answers the expected verdict, except for the cases that lie
       ## outside the supported subset, for which it declares the case
       ## unsupported.
+    cpWrongOutsideSubset
+      ## Answers the expected verdict, except for the cases that lie
+      ## outside the supported subset, for which it answers the *wrong*
+      ## verdict.
+      ##
+      ## The provider witnesses that a wrong raw answer outside the
+      ## adapter's subset is still a wrong answer, and is counted as a
+      ## failure of the raw measurement.
+    cpRefuseSupported
+      ## Declares every case that lies *inside* the supported subset
+      ## unsupported, and answers the expected verdict for the rest.
+      ##
+      ## The provider witnesses that a refusal of a supported case is a
+      ## defect of the implementation, not an exclusion.
 
 proc controlledProvider*(kind: ControlledProviderKind): proc (c: CorpusCase): ProviderOutcome =
   ## A controlled verdict provider.
@@ -192,6 +195,23 @@ proc controlledProvider*(kind: ControlledProviderKind): proc (c: CorpusCase): Pr
         return ProviderOutcome(verdict: ovUnsupported, message: subset.reason)
       let verdict = if c.expectedValid: ovAccepted else: ovRejected
       ProviderOutcome(verdict: verdict, message: "")
+    of cpWrongOutsideSubset:
+      let subset = subsetJudge()(c)
+      if subset.reason.len > 0:
+        # A wrong answer: the opposite of what the corpus expects.
+        let wrong = if c.expectedValid: ovRejected else: ovAccepted
+        return ProviderOutcome(verdict: wrong,
+                               message: "the controlled provider answers wrongly")
+      let verdict = if c.expectedValid: ovAccepted else: ovRejected
+      ProviderOutcome(verdict: verdict, message: "")
+    of cpRefuseSupported:
+      let subset = subsetJudge()(c)
+      if subset.reason.len == 0:
+        return ProviderOutcome(verdict: ovUnsupported,
+                               message: "the controlled provider refuses a " &
+                                        "supported case")
+      let verdict = if c.expectedValid: ovAccepted else: ovRejected
+      ProviderOutcome(verdict: verdict, message: "")
 
 proc controlledProviderByName*(name: string): ControlledProviderKind =
   ## The controlled provider with the given name.
@@ -202,5 +222,7 @@ proc controlledProviderByName*(name: string): ControlledProviderKind =
   of "error": cpError
   of "correct": cpCorrect
   of "unsupported": cpUnsupported
+  of "wrong-outside-subset": cpWrongOutsideSubset
+  of "refuse-supported": cpRefuseSupported
   else:
     raise newException(ValueError, "unknown controlled provider: " & name)

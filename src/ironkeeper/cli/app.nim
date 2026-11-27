@@ -24,6 +24,7 @@ from ironkeeper/contracts/validator import newValidator, validateAgainst, Schema
 from ironkeeper/contracts/reportsemantics import validateReportSemantics
 from ironkeeper/contracts/outputbounds import boundMessage, boundLocation,
   MaxIssueCount
+from ironkeeper/contracts/utf8 import sanitizeJson
 from ironkeeper/json/strictjson import parseStrict, StrictJsonResult, MaxDocumentBytes
 from ironkeeper/json/boundedread import openDocument, closeDocument, readDocument,
   ofNotRegularFile, rfTooLarge
@@ -106,7 +107,11 @@ proc writeOut(ctx: var CliContext, text: string) =
 
 proc emitJson(ctx: var CliContext, node: JsonNode) =
   ## Write a machine-readable document to stdout.
-  ctx.stdoutBuf.add node.pretty(2)
+  ##
+  ## The document is sanitised before it is written: every string in it is
+  ## repaired to valid UTF-8, so that the emitted document is always
+  ## readable by a conforming JSON consumer, whatever the input carried.
+  ctx.stdoutBuf.add sanitizeJson(node).pretty(2)
   ctx.stdoutBuf.add "\n"
   ctx.producedResult = true
 
@@ -348,11 +353,14 @@ proc cmdReportValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
     # document cannot be read as "there were no other issues" and the
     # verdict cannot become a success.
     var issueArray = newJArray()
-    let dropped = max(issues.len - MaxIssueCount, 0)
     # When the collection is truncated, one slot is reserved for the
     # marker, so that the rendered document never exceeds the contract's
-    # limit.
-    let kept = if dropped > 0: MaxIssueCount - 1 else: issues.len
+    # limit. The dropped count is derived from the number of entries that
+    # are actually kept, so that the two cannot disagree: 1025 issues
+    # keep 1023 issues and drop 2, not 1.
+    let truncated = issues.len > MaxIssueCount
+    let kept = if truncated: MaxIssueCount - 1 else: issues.len
+    let dropped = issues.len - kept
     for i in 0 ..< kept:
       var entry = newJObject()
       entry["location"] = newJString(boundLocation(issues[i].location))
@@ -360,7 +368,7 @@ proc cmdReportValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
         newJString(boundLocation(issues[i].keywordLocation))
       entry["message"] = newJString(boundMessage(issues[i].message))
       issueArray.add entry
-    if dropped > 0:
+    if truncated:
       var marker = newJObject()
       marker["code"] = newJString("issues.truncated")
       marker["message"] = newJString(
@@ -481,7 +489,8 @@ proc run*(argv: seq[string]): int =
     # the answer and stdout must carry exactly one JSON document. The
     # failure is then summarised on stderr only.
     if ctx.json and not ctx.producedResult:
-      ctx.stdoutBuf.add errorDocument(e.data.kind, e.data.message, e.data.detail).pretty(2)
+      ctx.stdoutBuf.add sanitizeJson(
+        errorDocument(e.data.kind, e.data.message, e.data.detail)).pretty(2)
       ctx.stdoutBuf.add "\n"
       ctx.producedResult = true
     else:

@@ -6,6 +6,9 @@
 # Generated validation output from the CI cross-check
 /out/
 
+# Gate logs produced by the repository-owned gate scripts
+/gate-logs/
+
 # Nimble
 /nimble.paths
 /nimblecache/

@@ -67,11 +67,14 @@ underneath it.
 
 ### Why the numeric decision is made from the source text
 
-The numeric bound at 2^53 exists because JSON Schema's numeric semantics
-are defined over IEEE-754 binary64. Accepting a larger integer would
-mean accepting a value that cannot be represented exactly, and a storage
-report that rounds a byte count is worse than one that refuses to produce
-it.
+The numeric bound at 2^53 is an **Ironkeeper** restriction. JSON Schema
+does not define a universal numeric model: its keywords are written over
+mathematical numbers, and the specification says nothing about IEEE-754
+binary64. Ironkeeper chooses binary64 as the numeric model of its own
+documents, and refuses any number it cannot represent exactly. Accepting
+a larger integer would mean accepting a value that cannot be represented
+exactly, and a storage report that rounds a byte count is worse than one
+that refuses to produce it.
 
 The bound was originally enforced *after* converting the source text to a
 binary64, which made the bound meaningless. `9007199254740993.0` was

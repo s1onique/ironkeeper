@@ -8,34 +8,68 @@
 ## therefore score identically and both fail: the harness measures
 ## agreement, not activity.
 ##
+## ## The two measurements
+##
+## The harness produces two *separate* measurements, and they are never
+## conflated:
+##
+##   * the **raw upstream** measurement drives the upstream library over
+##     the whole mandatory corpus. It is a measurement of the *library*.
+##     A wrong answer to a mandatory case is a failure of that
+##     measurement, whether or not Ironkeeper supports the schema feature
+##     the case exercises.
+##   * the **adapter** measurement drives the Ironkeeper adapter over the
+##     supported subset. It is a measurement of *Ironkeeper*. A case
+##     outside the subset is excluded, with its reason recorded.
+##
+## A known upstream limitation may be *recorded and accepted* for the
+## product qualification when it lies outside the required subset. It is
+## never reported as a successful raw conformance case: it is counted as
+## a raw failure, and it is listed as an accepted limitation.
+##
+## ## The counting invariant
+##
+## For every measurement:
+##
+## ```text
+## denominator = passed + failed
+## ```
+##
+## A case that is excluded is neither a pass nor a failure, and it never
+## contributes to the denominator. A measurement with an empty
+## denominator establishes nothing and cannot be a PASS.
+##
 ## ## The provider seam
 ##
 ## The harness does not know how a verdict is produced. It asks a
-## *provider*. The production providers drive the upstream validator and the
-## Ironkeeper adapter; the controlled providers exist so that the harness's
-## own counting and terminal-verdict logic can be tested against verdicts
-## that are wrong in a known way. A harness whose oracle cannot be shown to
-## reject a wrong answer is not an oracle.
+## *provider*. The production providers drive the upstream validator and
+## the Ironkeeper adapter; the controlled providers exist so that the
+## harness's own counting and terminal-verdict logic can be tested against
+## verdicts that are wrong in a known way. A harness whose oracle cannot
+## be shown to reject a wrong answer is not an oracle.
 ##
 ## ## Exclusions
 ##
-## A case may leave the denominator only when the exclusion is authorised:
+## An exclusion is only honoured when it is **authorised** and valid:
 ##
-##   * the harness itself determined that the case lies outside the
-##     supported subset, from the schema document alone; or
-##   * the exact case identity is listed in the repository's authorised
-##     limitation file, with a reason.
+##   * the exact case identity is named by an authorised-limitation
+##     entry, with a reason;
+##   * the entry is not stale (it names a case of the corpus);
+##   * the entry is not duplicated;
+##   * the entry has a reason; and
+##   * the case lies *outside* the required subset, because an exclusion
+##     of a supported case would hide a defect.
 ##
-## The implementation under test never excludes its own case. When it
-## refuses a case the harness considers supported, that refusal is a
-## failure.
+## A stale, duplicated, malformed or unauthorised entry is unusable
+## evidence: it fails the qualification rather than being ignored.
 
 import std/[tables, sets]
 
 from ironkeeper/qualification/verdict import CaseResult, ObservedVerdict,
   Classification, ClassificationCounts, classify, classificationOf, countsOf,
-  denominatorOf, passesOf, failuresOf, unauthorisedExclusionsOf, verdictOf,
-  QualificationVerdict, renderCounts
+  denominatorOf, passesOf, failuresOf, unauthorisedExclusionsOf,
+  invalidEvidenceOf, verdictOf, isFailure, clUnsupportedPolicy,
+  clKnownLimitation, QualificationVerdict, renderCounts
 from ironkeeper/qualification/corpus import CorpusCase, Corpus
 
 type
@@ -54,9 +88,8 @@ type
     ## What a measurement covers.
     scUpstream
       ## The upstream library is measured over the whole mandatory
-      ## corpus. A case that lies outside Ironkeeper's supported subset
-      ## and that the library answers wrongly is recorded as an exact
-      ## limitation, not as a failure of the qualification.
+      ## corpus. A wrong answer is a failure of that measurement, even
+      ## when the case lies outside Ironkeeper's supported subset.
     scAdapter
       ## The Ironkeeper adapter is measured over the supported subset. A
       ## case outside the subset is excluded, with its reason.
@@ -76,19 +109,23 @@ type
     reason*: string
 
   QualificationReport* = object
-    ## The result of one qualification run.
+    ## The result of one measurement.
     results*: seq[CaseResult]
       ## Every case, in corpus order.
     counts*: ClassificationCounts
       ## The per-class counts.
     denominator*: int
-      ## The number of cases that count towards the qualification.
+      ## The number of cases that count towards the measurement. It is
+      ## always `passed + failed`.
     passed*: int
       ## The number of in-denominator cases that were answered correctly.
+    failed*: int
+      ## The number of in-denominator cases that were answered wrongly.
+      ## `denominator = passed + failed` holds for every measurement.
     verdict*: QualificationVerdict
       ## The terminal verdict.
     exclusions*: seq[Exclusion]
-      ## The authorised exclusions, with their reasons.
+      ## The excluded cases, with their reasons.
     exclusionCounts*: Table[string, int]
       ## The number of exclusions, grouped by the reason they were
       ## excluded. The grouping is by the exact reason text, so that two
@@ -96,6 +133,9 @@ type
     unsupported*: seq[string]
       ## The identities of the cases the harness placed outside the
       ## supported subset.
+    acceptedLimitations*: seq[string]
+      ## The identities of the raw failures that an authorised
+      ## limitation entry permits the product qualification to accept.
 
 proc runCase(c: CorpusCase, provider: VerdictProvider,
              judge: SubsetJudge): CaseResult =
@@ -119,6 +159,14 @@ proc runCase(c: CorpusCase, provider: VerdictProvider,
     inDenominator: false,
     observedNote: note)
 
+proc invalidEvidenceResult(identity, reason: string): CaseResult =
+  ## A case whose evidence is unusable.
+  CaseResult(identity: identity, expectedValid: false, observed: ovError,
+             inSupportedSubset: true, exclusionReason: reason,
+             authorisedLimitation: false, optional: true,
+             inDenominator: false, invalidEvidence: true,
+             observedNote: reason)
+
 proc runCorpus*(corpus: Corpus, provider: VerdictProvider,
                 judge: SubsetJudge, scope: Scope,
                 exclusions: seq[Exclusion] = @[]): QualificationReport =
@@ -127,16 +175,43 @@ proc runCorpus*(corpus: Corpus, provider: VerdictProvider,
   var report: QualificationReport
   ##
   ## The exclusions are the authorised ones: they are matched by the exact
-  ## case identity, and each carries its reason. An exclusion that names a
-  ## case the corpus does not contain is a defect in the exclusion list,
-  ## and it is reported as an invalid-evidence case.
+  ## case identity, and each carries a reason. An exclusion that names a
+  ## case the corpus does not contain, that is duplicated, that carries no
+  ## reason, or that would exclude a case inside the supported subset is
+  ## a defect in the exclusion authority, and it is reported as unusable
+  ## evidence: it fails the qualification.
   var authorised: Table[string, string]
   for e in exclusions:
+    if e.identity.len == 0:
+      report.results.add invalidEvidenceResult(
+        "(no identity)",
+        "the exclusion entry names no case")
+      continue
+    if e.reason.len == 0:
+      report.results.add invalidEvidenceResult(
+        e.identity, "the exclusion entry carries no reason")
+      continue
+    if authorised.hasKey(e.identity):
+      report.results.add invalidEvidenceResult(
+        e.identity, "the exclusion entry is duplicated")
+      continue
     authorised[e.identity] = e.reason
 
   var seen: HashSet[string]
   for c in corpus.cases:
     var caseResult = runCase(c, provider, judge)
+    if authorised.hasKey(c.identity) and caseResult.inSupportedSubset:
+      # The exclusion names a case inside the required subset. Such an
+      # exclusion would hide a defect of the supported subset, so it is
+      # unauthorised and the qualification fails.
+      caseResult.authorisedLimitation = false
+      caseResult.exclusionReason = "the exclusion entry names a case inside " &
+        "the required subset"
+      report.results.add invalidEvidenceResult(
+        c.identity, "the exclusion entry names a case inside the required " &
+                    "subset")
+      seen.incl c.identity
+      continue
     if authorised.hasKey(c.identity):
       caseResult.authorisedLimitation = true
       caseResult.exclusionReason = authorised[c.identity]
@@ -148,33 +223,30 @@ proc runCorpus*(corpus: Corpus, provider: VerdictProvider,
       if caseResult.exclusionReason.len == 0:
         caseResult.exclusionReason = c.representationReason
     caseResult.outsideSupportedSubset = not caseResult.inSupportedSubset
-    # A wrong answer counts as a failure when the case lies inside the
-    # supported subset. Outside the subset it is an exact limitation of
-    # the upstream library, which is recorded rather than failed.
-    caseResult.countedAsFailure = caseResult.inSupportedSubset
+    # A wrong answer counts as a failure of the measurement. The
+    # measurement decides what it covers; the answer decides whether it
+    # was right.
+    caseResult.countedAsFailure = true
+    # The classification is derived before the denominator is decided, so
+    # that an excluded classification can never sit in the denominator.
+    let classification = classificationOf(caseResult)
     # The denominator is decided by the corpus structure and by the
-    # supported subset, never by the implementation's answer.
-    caseResult.inDenominator = (not c.optional) and
+    # measurement, never by the implementation's answer.
+    var inDenominator = (not c.optional) and
       (not caseResult.representationLimited) and
-      (not caseResult.authorisedLimitation) and
       (scope == scUpstream or caseResult.inSupportedSubset)
+    if classification in {clUnsupportedPolicy, clKnownLimitation}:
+      inDenominator = false
+    caseResult.inDenominator = inDenominator
     seen.incl c.identity
     report.results.add caseResult
 
   # An exclusion that names no case in the corpus is stale. It is not
   # silently ignored: the corpus and the limitation list must agree.
   for e in exclusions:
-    if e.identity notin seen:
-      report.results.add CaseResult(
-        identity: e.identity,
-        expectedValid: false,
-        observed: ovError,
-        inSupportedSubset: true,
-        exclusionReason: "the authorised limitation names no case in the corpus",
-        authorisedLimitation: false,
-        optional: true,
-        inDenominator: false,
-        observedNote: "the authorised limitation is stale")
+    if e.identity.len > 0 and e.identity notin seen:
+      report.results.add invalidEvidenceResult(
+        e.identity, "the authorised limitation names no case in the corpus")
 
   for r in report.results:
     if not r.inSupportedSubset:
@@ -182,6 +254,7 @@ proc runCorpus*(corpus: Corpus, provider: VerdictProvider,
   report.counts = countsOf(report.results)
   report.denominator = denominatorOf(report.results)
   report.passed = passesOf(report.results)
+  report.failed = failuresOf(report.results).len
   report.verdict = verdictOf(report.results)
   for r in report.results:
     if not r.inDenominator:
@@ -193,6 +266,13 @@ proc runCorpus*(corpus: Corpus, provider: VerdictProvider,
         report.exclusionCounts[reason] += 1
       else:
         report.exclusionCounts[reason] = 1
+    # A raw failure that an authorised limitation covers is *recorded*,
+    # and it is accepted for the product qualification only when it lies
+    # outside the required subset.
+    if r.inDenominator and r.authorisedLimitation and
+       r.outsideSupportedSubset and r.countedAsFailure and
+       isFailure(classificationOf(r)):
+      report.acceptedLimitations.add r.identity
   report
 
 proc mandatoryResults*(report: QualificationReport): seq[CaseResult] =
@@ -208,8 +288,12 @@ proc optionalResults*(report: QualificationReport): seq[CaseResult] =
       result.add r
 
 proc failures*(report: QualificationReport): seq[CaseResult] =
-  ## The cases that failed the qualification.
+  ## The cases that failed the measurement.
   failuresOf(report.results)
+
+proc invalidEvidence*(report: QualificationReport): seq[CaseResult] =
+  ## The entries whose evidence is unusable.
+  invalidEvidenceOf(report.results)
 
 proc upstreamLimitations*(report: QualificationReport): seq[CaseResult] =
   ## The cases that lie outside the supported subset and were answered
@@ -220,19 +304,47 @@ proc upstreamLimitations*(report: QualificationReport): seq[CaseResult] =
   ## and their expected and observed verdicts, not hidden.
   for r in report.results:
     if r.inDenominator and r.outsideSupportedSubset and
-       classificationOf(r) in {clFalseAcceptance, clFalseRejection,
-                               clExecutionError}:
+       isFailure(classificationOf(r)):
       result.add r
 
 proc unauthorisedExclusions*(report: QualificationReport): seq[CaseResult] =
   ## The exclusions that were not authorised.
   unauthorisedExclusionsOf(report.results)
 
+proc productVerdict*(raw, adapter: QualificationReport): QualificationVerdict =
+  ## The verdict of the *product* qualification.
+  ##
+  ## The product qualification is Ironkeeper, not the upstream library.
+  ## It therefore passes when:
+  ##
+  ##   * the adapter measurement passed, and
+  ##   * every raw failure lies outside the required subset and is
+  ##     covered by an authorised limitation entry.
+  ##
+  ## A raw failure inside the required subset is a failure of the
+  ## product: the library is wrong about something Ironkeeper claims to
+  ## support.
+  if adapter.verdict != qvPass:
+    return qvFail
+  if raw.denominator == 0 or adapter.denominator == 0:
+    return qvFail
+  for f in failures(raw):
+    if not f.outsideSupportedSubset:
+      return qvFail
+    if not f.authorisedLimitation:
+      return qvFail
+  for e in invalidEvidence(raw) & invalidEvidence(adapter):
+    discard e
+  if invalidEvidence(raw).len > 0 or invalidEvidence(adapter).len > 0:
+    return qvFail
+  qvPass
+
 proc renderSummary*(report: QualificationReport): seq[string] =
   ## A stable rendering of the report.
   result = @["denominator=" & $report.denominator,
              "passed=" & $report.passed,
-             "failed=" & $failures(report).len,
+             "failed=" & $report.failed,
+             "invalid_evidence=" & $invalidEvidence(report).len,
              "unauthorised_exclusions=" & $unauthorisedExclusions(report).len]
   result.add renderCounts(report.counts)
   result.add "verdict=" & (if report.verdict == qvPass: "PASS" else: "FAIL")

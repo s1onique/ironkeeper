@@ -219,7 +219,10 @@ proc corpusFiles(root: string): seq[tuple[path, relative: string]] =
   var found: seq[tuple[path, relative: string]] = @[]
   for path in walkDirRec(root):
     if path.endsWith(".json"):
-      let relative = path[root.len .. ^1]
+      # The relative path is computed by the standard library, so that a
+      # root that is not normalised cannot shift the offset and produce a
+      # wrong identity.
+      let relative = relativePath(path, root)
       found.add (path, relative.strip(chars = {'/'}))
   found.sort(proc (a, b: tuple[path, relative: string]): int =
     cmp(a.relative, b.relative))

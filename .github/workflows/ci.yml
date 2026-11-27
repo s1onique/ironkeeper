@@ -80,26 +80,12 @@ jobs:
       - name: Install the pinned Nim toolchain
         run: |
           set -euo pipefail
-          # The official Nim distribution is per-architecture, and the
-          # runner's own architecture selects it. Downloading the x86-64
-          # distribution on an arm64 runner produces a binary that cannot
-          # be executed.
-          case "$(uname -m)" in
-            x86_64)  nim_arch=x64;   nim_sha="$NIM_SHA256_AMD64" ;;
-            aarch64) nim_arch=arm64; nim_sha="$NIM_SHA256_ARM64" ;;
-            *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
-          esac
-          archive="nim-${NIM_VERSION}-linux_${nim_arch}.tar.xz"
-          mkdir -p "$RUNNER_TEMP/nim"
-          cd "$RUNNER_TEMP/nim"
-          curl -fsSLO "https://nim-lang.org/download/${archive}"
-          echo "${nim_sha}  ${archive}" | sha256sum -c -
-          tar xf "${archive}"
-          # `$GITHUB_PATH` applies to later steps only, so the directory
-          # is also put on PATH for the remainder of this step.
-          export PATH="$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin:$PATH"
-          echo "$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin" >> "$GITHUB_PATH"
-          nim --version
+          # The bootstrap is the repository-owned script, so that CI and
+          # the regression check exercise the same code. The official Nim
+          # distribution is per-architecture, and the runner's own
+          # architecture selects it: downloading the x86-64 distribution
+          # on an arm64 runner produces a binary that cannot be executed.
+          tools/install_nim_toolchain.sh
           nimble --version
 
       # std/re, which the JSON Schema validator uses for `pattern`, loads
@@ -271,20 +257,9 @@ jobs:
       - name: Install the pinned Nim toolchain
         run: |
           set -euo pipefail
-          case "$(uname -m)" in
-            x86_64)  nim_arch=x64;   nim_sha="$NIM_SHA256_AMD64" ;;
-            aarch64) nim_arch=arm64; nim_sha="$NIM_SHA256_ARM64" ;;
-            *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
-          esac
-          archive="nim-${NIM_VERSION}-linux_${nim_arch}.tar.xz"
-          mkdir -p "$RUNNER_TEMP/nim"
-          cd "$RUNNER_TEMP/nim"
-          curl -fsSLO "https://nim-lang.org/download/${archive}"
-          echo "${nim_sha}  ${archive}" | sha256sum -c -
-          tar xf "${archive}"
-          echo "$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin" >> "$GITHUB_PATH"
-          echo "$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin" >> "$PATH"
-          nim --version
+          # The same repository-owned bootstrap as the build job, so that
+          # the toolchain is installed and put on PATH in exactly one way.
+          tools/install_nim_toolchain.sh
 
       - name: Install the PCRE runtime dependency
         run: |
@@ -314,28 +289,42 @@ jobs:
 
       # The decision is made by the repository-owned script, not by a
       # path filter written in the workflow file.
+      #
+      # The event data is passed through the *environment*. It is never
+      # interpolated into the shell source: an interpolated value would be
+      # executable text, and an event field is not trusted input.
       - name: Decide whether requalification is required
         id: requalify
+        env:
+          # The comparison base. It may be empty, and it may be the
+          # all-zero object id; the decision script treats both as a
+          # missing comparison authority and requires the qualification.
+          IRK_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          base="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
-            base=HEAD
-          fi
-          decision=$(bash tools/requalification_needed.sh "$base" | tee /dev/stderr | grep '^requalification=' | head -1)
+          decision=$(bash tools/requalification_needed.sh "$IRK_BASE_SHA" \
+            | tee /dev/stderr | grep '^requalification=' | head -1)
           echo "decision=${decision#requalification=}" >> "$GITHUB_OUTPUT"
-          echo "base=${base}" >> "$GITHUB_OUTPUT"
+          echo "base=${IRK_BASE_SHA}" >> "$GITHUB_OUTPUT"
 
+      # The qualification step always runs. A green job whose
+      # qualification step was skipped does not establish anything, and
+      # the selective decision is a *cost* optimisation, not a gate.
+      # The decision is still recorded, so that the cost optimisation can
+      # be inspected afterwards.
       - name: Qualify the validator
-        if: steps.requalify.outputs.decision == 'needed'
         run: tools/qualify_validator.sh
 
       - name: Record the requalification decision
+        env:
+          IRK_DECISION: ${{ steps.requalify.outputs.decision }}
+          IRK_BASE: ${{ steps.requalify.outputs.base }}
+          IRK_HEAD: ${{ github.sha }}
         run: |
           {
-            echo "decision: ${{ steps.requalify.outputs.decision }}"
-            echo "base: ${{ steps.requalify.outputs.base }}"
-            echo "head: ${{ github.sha }}"
+            echo "decision: ${IRK_DECISION}"
+            echo "base: ${IRK_BASE}"
+            echo "head: ${IRK_HEAD}"
           } | tee requalification-decision.txt
 
       - name: Collect diagnostics

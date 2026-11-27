@@ -18,7 +18,7 @@ storage device.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M0 — Foundations | Architecture, contracts, CLI, tests, CI | **done** (re-established by ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02, closed by ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-03) |
+| M0 — Foundations | Architecture, contracts, CLI, tests, CI | **acceptance-pending** — the implementation is in place, but M0 is closed only by a `GO_FOUNDATION` verdict from ACT-IRONKEEPER-M0-CLOSURE-01, whose mandatory gates must all be met |
 | M1 — Read-only inventory and SMART observations | Discovery, identity, SMART acquisition | planned |
 | M2 — Operational qualification daemon | Qualification profiles, assessment engine, job engine | planned |
 | M3 — Autonomous housekeeping and observability | Scheduling, metrics, production workloads | planned |
@@ -330,7 +330,14 @@ archive convention is:
 
 ### ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-03
 
-* **Status:** done
+* **Status:** execution-complete, qualification-partial
+* **Note:** the predecessor could not authenticate to GitHub from its
+  sandbox, so it could not observe a CI run. That observation is
+  **historical**: subsequent remote CI runs `45926174624` and
+  `45926147466` executed the same commit `c3c4b588` and reached terminal
+  conclusions, with the native amd64 and arm64 build-and-test jobs and
+  the secret-scan gate successful. The predecessor's own receipts are
+  retained unchanged; the remote runs are recorded by the closure ACT.
 * **Scope:** Restore the remaining acceptance authority and close M0:
   the validator conformance oracle, the secret-scan report authority,
   the public output contracts, the bounded ingestion, the supported
@@ -342,7 +349,8 @@ archive convention is:
   expected verdict and never compared it with the observed one, so its
   counts measured activity rather than conformance. The historical
   observation is retained; it is not evidence of conformance.
-* **Next:** ACT-IRONKEEPER-READONLY-INVENTORY-01.
+* **Next:** ACT-IRONKEEPER-M0-CLOSURE-01 (mandatory gates), and then
+  ACT-IRONKEEPER-READONLY-INVENTORY-01.
 
 ### ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02
 

@@ -28,6 +28,8 @@ strict reader compares names after unescaping.
 **I-4. Numbers are represented exactly or not at all.**
 No value whose magnitude exceeds 2^53 is accepted, because such a value
 cannot be represented exactly as a binary64 and would silently round.
+This is Ironkeeper's own numeric model, chosen by this implementation;
+JSON Schema itself does not define one.
 *Enforced by:* the strict reader; documented in
 [overview.md](overview.md#numeric-representation).
 

@@ -20,6 +20,7 @@ from ironkeeper/core/version import Version, ApplicationName
 from ironkeeper/core/errors import IrkErrorKind, codeFor
 from ironkeeper/contracts/outputbounds import boundMessage, boundLocation,
   boundCode, boundDetail, MaxIssueCount
+from ironkeeper/contracts/utf8 import sanitizeJson
 
 type
   ExecutionState* = enum
@@ -175,26 +176,41 @@ proc toJson*(r: Report): JsonNode =
     ex["message"] = newJString(boundMessage(r.executionMessage))
   root["execution"] = ex
 
+  # The findings collection is bounded. The truncation is decided *before*
+  # the assessment is rendered, because a dropped finding may have been
+  # an error finding: a report that dropped findings cannot claim that
+  # the subject is healthy.
+  #
+  # When the collection is truncated, one slot is reserved for the
+  # marker, so that the rendered document never exceeds the contract's
+  # limit. The dropped count is derived from the number of entries that
+  # are actually kept, so that the two cannot disagree: a collection of
+  # 1025 findings keeps 1023 findings and drops 2, not 1.
+  let truncated = r.findings.len > MaxIssueCount
+  let kept = if truncated: MaxIssueCount - 1 else: r.findings.len
+  let dropped = r.findings.len - kept
+
   if r.hasAssessment:
     var a = newJObject()
-    a["verdict"] = newJString($r.verdict)
-    a["summary"] = newJString(boundMessage(r.assessmentSummary))
+    var verdict = r.verdict
+    var summary = r.assessmentSummary
+    if truncated and verdict == avPass:
+      # A PASS claim that rests on a truncated finding collection is not
+      # supported by the evidence the document carries. The verdict is
+      # therefore not PASS.
+      verdict = avWarn
+      summary = "the findings collection was truncated, so the assessment " &
+        "cannot conclude that the subject is healthy"
+    a["verdict"] = newJString($verdict)
+    a["summary"] = newJString(boundMessage(summary))
     if r.policyRevision.len > 0:
       a["policy_revision"] = newJString(r.policyRevision)
     root["assessment"] = a
 
-  # The findings collection is bounded. When entries are dropped, a
-  # marker finding names how many, so that the document cannot be read
-  # as "there were no other findings".
   var findings = newJArray()
-  let dropped = max(r.findings.len - MaxIssueCount, 0)
-  # When the collection is truncated, one slot is reserved for the
-  # marker, so that the rendered document never exceeds the contract's
-  # limit.
-  let kept = if dropped > 0: MaxIssueCount - 1 else: r.findings.len
   for i in 0 ..< kept:
     findings.add r.findings[i].toJson
-  if dropped > 0:
+  if truncated:
     var marker = newJObject()
     marker["code"] = newJString("findings.truncated")
     marker["severity"] = newJString($fsWarning)
@@ -217,7 +233,7 @@ proc toJson*(r: Report): JsonNode =
       s["identifier"] = newJString(r.subjectIdentifier)
     root["subject"] = s
 
-  root
+  sanitizeJson(root)
 
 proc newReport*(reportType: ReportType, subjectKind = "",
                 subjectIdentifier = ""): Report =

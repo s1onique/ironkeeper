@@ -129,6 +129,45 @@ if [ "${#FAILED[@]}" -eq 0 ]; then
     "$ROOT/build/ironkeeper" report validate --file "$OUT_DIR/config-report.json" --json
   record crosscheck-validation "$VALIDATOR" --schemafile schemas/v1/validation.schema.json "$OUT_DIR/validation.json"
 
+  # A **truncated** report is validated independently as well. The
+  # configuration below carries more unknown members than the findings
+  # collection can hold, so the produced report is truncated: one slot is
+  # reserved for the marker, and the rest are dropped. The independent
+  # implementation checks that the truncated document still satisfies the
+  # report contract, and that it does not claim PASS.
+  python3 - "$OUT_DIR/many-findings.json" <<'PYGEN'
+import json, sys
+doc = {
+  "schema_version": 1,
+  "daemon": {"state_directory": "/var/lib/ironkeeper", "socket_path": "/run/ironkeeper.sock"},
+  "safety": {
+    "require_explicit_enrollment": True,
+    "allow_destructive_operations": False,
+    "allow_tests_on_in_use_devices": False,
+  },
+}
+for i in range(1100):
+    doc["unknown_member_%04d" % i] = i
+with open(sys.argv[1], "w") as handle:
+    json.dump(doc, handle)
+PYGEN
+  generate generate-truncated-report "$OUT_DIR/truncated-report.json" 5 \
+    "$ROOT/build/ironkeeper" config validate --file "$OUT_DIR/many-findings.json" --json
+  record crosscheck-truncated-report "$VALIDATOR" --schemafile schemas/v1/report.schema.json "$OUT_DIR/truncated-report.json"
+  # A truncated report must not carry an unsupported PASS claim.
+  if grep -q '"verdict": "PASS"' "$OUT_DIR/truncated-report.json"; then
+    echo "gate: FAIL truncated-report: a truncated report claims PASS" >&2
+    FAILED+=("truncated-report-verdict")
+  else
+    echo "gate: ok   truncated-report (no unsupported PASS claim)"
+  fi
+  if grep -q '"findings.truncated"' "$OUT_DIR/truncated-report.json"; then
+    echo "gate: ok   truncated-report (the truncation is marked)"
+  else
+    echo "gate: FAIL truncated-report: the truncation is not marked" >&2
+    FAILED+=("truncated-report-marker")
+  fi
+
   # The classified failure output is a public document too. A missing
   # file is a classified failure, and the error document it produces must
   # satisfy the error contract.

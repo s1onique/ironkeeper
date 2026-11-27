@@ -36,10 +36,6 @@ JSCHEMA_TREE_SHA256="323f47f85dba93a0f96bd3ffd6ec964abe2663e260c988596d7a49a0d68
 JSCHEMA_REPO="https://github.com/Niminem/jschema.git"
 SUITE_REVISION="245a45abc90190c0bff04d97e6d2b541b4bb9f12"
 SUITE_REPO="https://github.com/json-schema-org/JSON-Schema-Test-Suite.git"
-SUITE_CORPUS_DIGEST="81b3abac420e41bc48c5048e6f80112828972374e332c92190de9c55bc146957"
-# The digest of the Draft 2020-12 corpus at the pinned revision. It is
-# computed over the corpus files themselves, so a modified checkout is
-# detected even when its revision is unchanged.
 
 NIM="${NIM:-nim}"
 KEEP="${IRK_QUALIFY_KEEP:-0}"
@@ -106,21 +102,68 @@ if [ "$ACTUAL_SUITE" != "$SUITE_REVISION" ]; then
 fi
 echo "suite_revision=$ACTUAL_SUITE"
 
-# ---- the corpus identity --------------------------------------------------
-# The tested corpus is identified by its own digest, not only by the
+# ---- the input identity ------------------------------------------------------
+# The tested input is identified by its own digest, not only by the
 # revision of the checkout. A checkout can be modified without its
 # revision changing, so the digest is what identifies the corpus.
+#
+# The digest covers **both** trees that the qualification consumes: the
+# Draft 2020-12 corpus *and* the remote schemas the corpus references. A
+# digest over the corpus alone would not identify the input, because a
+# modified remote schema changes the answer without changing the corpus.
 CORPUS_DIR="$SUITE_DIR/tests/draft2020-12"
-CORPUS_DIGEST=$(find "$CORPUS_DIR" -type f -name '*.json' | LC_ALL=C sort | \
+REMOTES_DIR="$SUITE_DIR/remotes"
+INPUTS_DIGEST=$(find "$CORPUS_DIR" "$REMOTES_DIR" -type f -name '*.json' | \
+  LC_ALL=C sort | \
   while read -r f; do printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" \
     "${f#"$SUITE_DIR"/}"; done | sha256sum | cut -d' ' -f1)
-echo "corpus_digest_sha256=$CORPUS_DIGEST"
-EXPECTED_CORPUS_DIGEST="${IRK_QUALIFY_EXPECTED_CORPUS_DIGEST:-$SUITE_CORPUS_DIGEST}"
-if [ -n "$EXPECTED_CORPUS_DIGEST" ] && \
-   [ "$CORPUS_DIGEST" != "$EXPECTED_CORPUS_DIGEST" ]; then
-  echo "qualify_validator: the tested corpus does not match the expected digest" >&2
-  echo "  expected: $EXPECTED_CORPUS_DIGEST" >&2
-  echo "  actual:   $CORPUS_DIGEST" >&2
+echo "corpus_dir=$CORPUS_DIR"
+echo "remotes_dir=$REMOTES_DIR"
+echo "inputs_digest_sha256=$INPUTS_DIGEST"
+
+# The pinned digest of both trees at the pinned revision.
+SUITE_INPUTS_DIGEST="45bf30e6bc639547d4b7a75fe152fce5451e523fa976ff82f0576e9c6fcd1322"
+EXPECTED_INPUTS_DIGEST="$SUITE_INPUTS_DIGEST"
+
+# A caller-supplied digest override is a **development** convenience. It
+# is accepted only when the caller states that the result is not
+# authoritative, and the result is classified accordingly: an
+# unqualified override never produces an authoritative verdict.
+AUTHORITATIVE=1
+if [ -n "${IRK_QUALIFY_EXPECTED_INPUTS_DIGEST:-}" ]; then
+  EXPECTED_INPUTS_DIGEST="$IRK_QUALIFY_EXPECTED_INPUTS_DIGEST"
+  if [ "${IRK_QUALIFY_AUTHORITATIVE:-0}" != "1" ]; then
+    echo "qualification_authoritative=false"
+    echo "qualification_classification=development-override"
+    echo "qualify_validator: the expected digest was supplied by the caller;" >&2
+    echo "  the result is therefore NOT authoritative" >&2
+  else
+    echo "qualification_authoritative=true"
+  fi
+else
+  echo "qualification_authoritative=true"
+fi
+
+if [ "$EXPECTED_INPUTS_DIGEST" != "$INPUTS_DIGEST" ]; then
+  echo "qualify_validator: the tested input does not match the expected digest" >&2
+  echo "  expected: $EXPECTED_INPUTS_DIGEST" >&2
+  echo "  actual:   $INPUTS_DIGEST" >&2
+  exit 1
+fi
+echo "inputs_digest_verified=true"
+
+# ---- the remote schema tree --------------------------------------------------
+# The remote schemas are mandatory inputs. A missing or malformed remote
+# schema is refused: the harness would otherwise measure a corpus whose
+# references it could not resolve.
+if [ ! -d "$REMOTES_DIR" ]; then
+  echo "qualify_validator: the remote schema tree is missing: $REMOTES_DIR" >&2
+  exit 1
+fi
+REMOTE_COUNT=$(find "$REMOTES_DIR" -type f -name '*.json' | wc -l | tr -d ' ')
+echo "remote_schema_files=$REMOTE_COUNT"
+if [ "$REMOTE_COUNT" -eq 0 ]; then
+  echo "qualify_validator: the remote schema tree is empty" >&2
   exit 1
 fi
 

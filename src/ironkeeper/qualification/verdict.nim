@@ -25,6 +25,23 @@
 ## | `clKnownLimitation` | an authorised, recorded limitation | no, excluded |
 ## | `clInvalidEvidence` | the test evidence itself is unusable | yes, as a failure |
 ##
+## ## The counting invariant
+##
+## For every reported measurement:
+##
+## ```text
+## denominator = passed + failed
+## ```
+##
+## The denominator is the number of cases that count towards the
+## measurement. Every one of them is either answered correctly (a pass) or
+## answered incorrectly (a failure). A case that is excluded is not in
+## the denominator at all: it is neither a pass nor a failure, and it is
+## reported separately with its reason.
+##
+## A measurement with an empty denominator establishes nothing. It cannot
+## be a PASS.
+##
 ## An exclusion is only honoured when it is **authorised**. A case may be
 ## excluded from the denominator only when the harness itself determined
 ## that the case is outside the supported subset, or when the exact case
@@ -80,6 +97,19 @@ type
     authorisedLimitation*: bool
       ## Whether the exact case identity is listed in the repository's
       ## authorised-limitation list.
+      ##
+      ## The flag does not remove a case from a measurement by itself and
+      ## it never turns a failure into a pass. A known upstream
+      ## limitation is still a wrong answer of the library. The flag is
+      ## the *authority* that lets the qualification accept such a
+      ## failure, and it is only honoured when the entry itself is valid.
+    invalidEvidence*: bool
+      ## The evidence about this case is unusable.
+      ##
+      ## A stale, duplicated or malformed exclusion entry, or an entry
+      ## that names no case of the corpus at all, produces such a case.
+      ## It is never a measurement, so it never contributes to the
+      ## denominator, and it fails the qualification.
     representationLimited*: bool
       ## Whether the case carries a number that the document model cannot
       ## represent exactly. Such a case cannot decide anything about a
@@ -102,12 +132,18 @@ type
       ## supported subset, from the schema document alone.
     countedAsFailure*: bool
       ## Whether a wrong answer to this case is a failure of the
-      ## qualification.
+      ## measurement.
       ##
-      ## In the upstream measurement a wrong answer to a case outside the
-      ## supported subset is an exact, recorded limitation of the library
-      ## relative to Ironkeeper's subset, not a failure. In the adapter
-      ## measurement every in-denominator case counts.
+      ## The flag is set by the harness from the *measurement*, not from
+      ## the case. In the **raw upstream** measurement every mandatory
+      ## case counts: the raw measurement is a measurement of the
+      ## upstream library, and a wrong answer to a case the library
+      ## claims to support is a wrong answer, whatever Ironkeeper's
+      ## supported subset happens to be.
+      ##
+      ## In the **adapter** measurement only the cases inside the
+      ## supported subset count, because the adapter is only measured
+      ## over the subset it supports.
 
   ClassificationCounts* = object
     ## The number of cases in each classification.
@@ -142,9 +178,21 @@ proc classify*(r: CaseResult): Classification =
   ## `inSupportedSubset` is the *harness's* determination. It is the only
   ## thing that can authorise an exclusion, and it is deliberately not
   ## derived from the observed verdict.
+  ##
+  ## An **authorised limitation** does not change the classification of
+  ## the answer. A wrong answer stays a wrong answer: it is counted as a
+  ## failure of the raw measurement, and it is never reported as a
+  ## successful conformance case. The authorisation is the authority that
+  ## lets the *product* qualification accept such a failure when it lies
+  ## outside the required subset.
+  if r.invalidEvidence:
+    # The evidence about this case is unusable. It is not a measurement,
+    # and it is never a pass.
+    return clInvalidEvidence
   if r.representationLimited:
-    return clKnownLimitation
-  if r.authorisedLimitation:
+    # A representation-limited case is a limitation of the *harness*: the
+    # document model cannot carry the number, so the case cannot decide
+    # anything about a validator. It is excluded, and it is reported.
     return clKnownLimitation
   if r.observed == ovError:
     return clExecutionError
@@ -220,13 +268,24 @@ proc passesOf*(results: seq[CaseResult]): int =
   n
 
 proc failuresOf*(results: seq[CaseResult]): seq[CaseResult] =
-  ## The cases that failed the qualification, in input order.
+  ## The cases that failed the measurement, in input order.
   ##
   ## Only in-denominator cases can fail. An excluded case has already been
   ## accounted for, with its reason.
   for r in results:
     if r.inDenominator and r.countedAsFailure and
        isFailure(classificationOf(r)):
+      result.add r
+
+proc invalidEvidenceOf*(results: seq[CaseResult]): seq[CaseResult] =
+  ## The cases whose evidence is unusable, in input order.
+  ##
+  ## An unusable evidence entry is never a measurement, so it never
+  ## contributes to the denominator. It nevertheless fails the
+  ## qualification: a stale, duplicated or malformed exclusion entry
+  ## means that the exclusion authority itself cannot be trusted.
+  for r in results:
+    if r.invalidEvidence:
       result.add r
 
 proc unauthorisedExclusionsOf*(results: seq[CaseResult]): seq[CaseResult] =
@@ -243,14 +302,25 @@ proc unauthorisedExclusionsOf*(results: seq[CaseResult]): seq[CaseResult] =
       result.add r
 
 proc verdictOf*(results: seq[CaseResult]): QualificationVerdict =
-  ## The terminal verdict of a qualification run.
+  ## The terminal verdict of a measurement.
   ##
-  ## The run passes only when every in-denominator case was answered
-  ## correctly, no case raised, no evidence was unusable, and every
-  ## exclusion was authorised.
+  ## The measurement passes only when:
+  ##
+  ##   * every in-denominator case was answered correctly;
+  ##   * no case raised instead of answering;
+  ##   * no evidence was unusable;
+  ##   * every exclusion was authorised; and
+  ##   * the denominator is not empty.
+  ##
+  ## A measurement with an empty denominator establishes nothing: it
+  ## measured no case at all, so it cannot establish a PASS.
   if failuresOf(results).len > 0:
     return qvFail
   if unauthorisedExclusionsOf(results).len > 0:
+    return qvFail
+  if invalidEvidenceOf(results).len > 0:
+    return qvFail
+  if denominatorOf(results) == 0:
     return qvFail
   qvPass
 

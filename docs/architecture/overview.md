@@ -281,9 +281,10 @@ use `std/json` at all, so there is no permissive fallback underneath it.
 
 ## Numeric representation
 
-JSON Schema numeric semantics are defined over IEEE-754 binary64. That
-is the *specification's* numeric model, and it is not the same thing as
-the set of numbers Ironkeeper's own contracts accept.
+JSON Schema does **not** define a universal numeric model. Its
+keywords are written over *mathematical* numbers: the specification
+constrains the value, not the representation, and it says nothing about
+IEEE-754 binary64.
 
 **The restriction below is an Ironkeeper implementation restriction, not a
 JSON Schema requirement.** JSON Schema permits a fractional number, a
@@ -292,6 +293,11 @@ upstream validator accepts them. Ironkeeper's *own* contracts do not need
 them: they carry small integers — schema versions, severities, counts —
 so the strict reader refuses what it cannot represent exactly. A contract
 that needs such a value must carry it as a canonical decimal *string*.
+
+Ironkeeper therefore chooses binary64 as *its own* numeric model, and
+imposes the exact-integer restriction on its own documents. The choice
+is a property of this implementation, not of the specification it
+implements.
 
 Binary64 cannot represent every decimal exactly, so a contract that
 accepts a number must decide, explicitly, what it accepts and what it

@@ -39,13 +39,15 @@
 
 import std/[os]
 
-from ironkeeper/qualification/corpus import readCorpus
+from ironkeeper/qualification/corpus import readCorpus, Corpus, CorpusCase
 from ironkeeper/qualification/harness import runCorpus, failures,
-  unauthorisedExclusions, upstreamLimitations, Scope, scAdapter
+  unauthorisedExclusions, invalidEvidence, upstreamLimitations, productVerdict,
+  Exclusion, Scope, scUpstream, scAdapter
 from ironkeeper/qualification/providers import controlledProvider,
   controlledProviderByName, subsetJudge, ControlledProviderKind
 from ironkeeper/qualification/verdict import classificationOf,
-  clUnsupportedPolicy, clKnownLimitation, qvPass
+  clUnsupportedPolicy, clKnownLimitation, clInvalidEvidence,
+  clFalseAcceptance, clFalseRejection, qvPass, qvFail
 
 const
   ExpectedFailing* = ["always-accept", "always-reject", "inverted", "error"]
@@ -62,6 +64,19 @@ proc optionValue(name: string, default = ""): string =
       return params[i + 1]
     inc i
   default
+
+
+proc firstOutsideSubset(corpus: Corpus): string =
+  ## The identity of the first case that lies outside the supported
+  ## subset.
+  ##
+  ## The decision is made by the production judge, from the schema
+  ## document alone.
+  let judge = subsetJudge()
+  for c in corpus.cases:
+    if judge(c).reason.len > 0:
+      return c.identity
+  ""
 
 proc main() =
   let corpusDir = optionValue("--corpus")
@@ -144,6 +159,168 @@ proc main() =
     failed += 1
   else:
     echo "ok: the unsupported case received an explicit classification"
+
+  # --- the required witnesses of the accounting ------------------------------
+  #
+  # The witnesses above show that a wrong answer is detected. The
+  # witnesses below show that the *accounting* is coherent: that a raw
+  # failure outside the adapter subset is not conflated with an adapter
+  # result, that an empty denominator establishes nothing, and that an
+  # invalid exclusion entry fails the qualification.
+  echo ""
+  echo "=== the accounting witnesses ==="
+
+  # (1) A wrong raw answer outside the adapter subset.
+  #
+  # The raw measurement covers the whole mandatory corpus, so a wrong
+  # answer there is a raw failure, even when the case lies outside the
+  # adapter's supported subset. It is not a success.
+  let wrongRaw = controlledProvider(cpWrongOutsideSubset)
+  let rawWrong = runCorpus(corpus, wrongRaw, subsetJudge(), scUpstream)
+  let rawWrongFailures = failures(rawWrong)
+  echo "raw_wrong_outside_subset_failures=", rawWrongFailures.len
+  if rawWrongFailures.len == 0:
+    echo "FAIL: a wrong raw answer outside the adapter subset was not counted"
+    failed += 1
+  elif rawWrong.denominator != rawWrong.passed + rawWrong.failed:
+    echo "FAIL: the raw denominator is not passed + failed"
+    failed += 1
+  else:
+    echo "ok: a wrong raw answer outside the adapter subset is a raw failure"
+
+  # (2) The adapter refuses a case inside the supported subset.
+  #
+  # A refusal of a supported case is a defect, not an exclusion.
+  let adapterWrong = runCorpus(corpus, controlledProvider(cpRefuseSupported),
+                                subsetJudge(), scAdapter)
+  echo "adapter_refuses_supported_failures=", failures(adapterWrong).len
+  if failures(adapterWrong).len == 0:
+    echo "FAIL: the adapter's refusal of a supported case was not counted"
+    failed += 1
+  else:
+    echo "ok: the adapter's refusal of a supported case is a failure"
+
+  # (3) A stale exclusion naming a case the corpus does not contain.
+  #
+  # The exclusion authority must agree with the corpus. A stale entry is
+  # unusable evidence, and it fails the qualification.
+  let stale = runCorpus(corpus, controlledProvider(cpCorrect), subsetJudge(),
+                        scAdapter, @[Exclusion(identity: "no-such-case#0.0",
+                                               reason: "a stale entry")])
+  echo "stale_exclusion_invalid_evidence=", invalidEvidence(stale).len
+  if invalidEvidence(stale).len == 0:
+    echo "FAIL: a stale exclusion did not produce invalid evidence"
+    failed += 1
+  elif stale.verdict == qvPass:
+    echo "FAIL: a stale exclusion did not fail the qualification"
+    failed += 1
+  else:
+    echo "ok: a stale exclusion fails the qualification"
+
+  # (4) An empty effective qualification denominator.
+  #
+  # A measurement that measured no case establishes nothing. It cannot
+  # establish a PASS.
+  # The optional corpus carries only optional cases, and an optional case
+  # never counts towards the denominator. The effective denominator of a
+  # measurement over it is therefore empty.
+  let optionalCorpus = readCorpus(corpusDir & "/../optional-corpus")
+  let judge = subsetJudge()
+  let empty = runCorpus(optionalCorpus, controlledProvider(cpCorrect),
+                        subsetJudge(), scAdapter)
+  echo "empty_denominator=", empty.denominator,
+       " optional_cases=", optionalCorpus.cases.len,
+       " optional_flags=", (block:
+  var n = 0
+  for c in optionalCorpus.cases:
+    if c.optional: inc n
+  n)
+  if empty.denominator != 0:
+    echo "FAIL: the effective denominator was not empty"
+    failed += 1
+  elif empty.verdict == qvPass:
+    echo "FAIL: an empty denominator established a PASS"
+    failed += 1
+  else:
+    echo "ok: an empty denominator cannot establish a PASS"
+
+  # (5) A correct mixed answer set.
+  #
+  # The counts of a correct measurement add up: the denominator is the
+  # number of cases that count, and the passes and the failures partition
+  # it.
+  let mixed = runCorpus(corpus, controlledProvider(cpCorrect), subsetJudge(),
+                        scAdapter)
+  echo "mixed_denominator=", mixed.denominator,
+       " passed=", mixed.passed, " failed=", mixed.failed
+  if mixed.denominator != mixed.passed + mixed.failed:
+    echo "FAIL: the denominator is not passed + failed"
+    failed += 1
+  elif mixed.failed != 0:
+    echo "FAIL: a correct provider produced a failure"
+    failed += 1
+  else:
+    echo "ok: a correct measurement satisfies denominator = passed + failed"
+
+  # (6) An explicitly authorised policy exclusion.
+  #
+  # An exclusion that names a real case outside the required subset, with
+  # a reason, is honoured: the case leaves the denominator, and it is
+  # reported with its reason rather than silently dropped.
+  let outside = firstOutsideSubset(corpus)
+  if outside.len == 0:
+    echo "FAIL: the witness corpus has no case outside the supported subset"
+    failed += 1
+  else:
+    let authorised = runCorpus(corpus, controlledProvider(cpCorrect),
+                               subsetJudge(), scAdapter,
+                               @[Exclusion(identity: outside,
+                                           reason: "the case exercises a " &
+                                                   "feature outside the " &
+                                                   "supported subset")])
+    echo "authorised_exclusion_exclusions=", authorised.exclusions.len
+    var named = false
+    for e in authorised.exclusions:
+      if e.identity == outside and e.reason.len > 0:
+        named = true
+    if not named:
+      echo "FAIL: the authorised exclusion was not reported with its reason"
+      failed += 1
+    elif unauthorisedExclusions(authorised).len != 0:
+      echo "FAIL: an authorised exclusion was reported as unauthorised"
+      failed += 1
+    else:
+      echo "ok: an authorised policy exclusion is honoured and reported"
+
+  # The product qualification accepts a raw failure outside the required
+  # subset only when an authorised limitation covers it.
+  if outside.len > 0:
+    var limitationEntries: seq[Exclusion] = @[]
+    for c in corpus.cases:
+      if judge(c).reason.len > 0:
+        limitationEntries.add Exclusion(
+          identity: c.identity,
+          reason: "a known upstream limitation outside the required subset")
+    let rawWithLimitation = runCorpus(corpus, wrongRaw, subsetJudge(),
+                                      scUpstream, limitationEntries)
+    let accepted = productVerdict(rawWithLimitation, mixed)
+    echo "product_verdict_with_limitation=",
+         (if accepted == qvPass: "PASS" else: "FAIL")
+    if accepted != qvPass:
+      echo "FAIL: an authorised upstream limitation was not accepted"
+      failed += 1
+    else:
+      echo "ok: an authorised upstream limitation is accepted for the product"
+    let rawWithoutLimitation = runCorpus(corpus, wrongRaw, subsetJudge(),
+                                         scUpstream)
+    let rejected = productVerdict(rawWithoutLimitation, mixed)
+    echo "product_verdict_without_limitation=",
+         (if rejected == qvPass: "PASS" else: "FAIL")
+    if rejected == qvPass:
+      echo "FAIL: an unauthorised raw failure was accepted for the product"
+      failed += 1
+    else:
+      echo "ok: an unauthorised raw failure is not accepted for the product"
 
   echo "witness_failures=", failed
   if failed > 0:

@@ -20,6 +20,15 @@
 ## dropped issue is still invalid, and the dropped-issue marker is itself
 ## an issue, so the document cannot be read as "no problems".
 ##
+## ## Length is counted in code points
+##
+## The JSON Schema `maxLength` keyword counts Unicode code points, not
+## bytes. The bounds are therefore expressed in code points, and a cut is
+## always taken at a code point boundary, so that a truncated value is
+## still valid Unicode. A byte-oriented cut could split a multi-byte
+## code point and produce a document that no conforming consumer can
+## read.
+##
 ## ## The limits
 ##
 ## The values are the limits of the version 1 contracts:
@@ -32,9 +41,12 @@
 ## | `MaxIssueCount` | 1024 | `report`, `validation` |
 ## | `MaxDetailLength` | 4096 | `error` |
 
+from ironkeeper/contracts/utf8 import sanitizeUtf8, runeCount, takeRunes,
+  InvalidTextPrefix
+
 const
   MaxMessageLength* = 4096
-    ## The maximum length of a human-readable message.
+    ## The maximum length of a human-readable message, in code points.
 
   MaxLocationLength* = 1024
     ## The maximum length of a JSON Pointer that names a position.
@@ -54,17 +66,45 @@ const
     ## The marker is part of the value, so a consumer that compares the
     ## value against the original can tell that it was shortened.
 
+  ShortTruncationMarker* = "\u2026"
+    ## The marker used when the bound is too small for `TruncationMarker`.
+    ##
+    ## The marker always fits inside the bound: a bound that cannot hold
+    ## the long marker still holds this one, and a bound that cannot hold
+    ## this one holds no marker at all.
+
 proc boundText*(value: string, limit: int): string =
-  ## Shorten `value` to at most `limit` characters.
+  ## Shorten `value` to at most `limit` code points.
   ##
-  ## The marker is included in the limit, so the result never exceeds it.
+  ## The result is always valid UTF-8:
+  ##
+  ##   * bytes that are not valid UTF-8 are replaced by U+FFFD, and the
+  ##     value is prefixed with `InvalidTextPrefix`, so that the reader is
+  ##     told that the text was not valid UTF-8 rather than being shown a
+  ##     silently repaired value;
+  ##   * a cut is taken at a code point boundary;
+  ##   * the truncation marker is included in the limit, so the result
+  ##     never exceeds it, and the marker always fits inside the bound.
+  ##
   ## The result is never empty when the input was not empty, so a
   ## truncated message still satisfies the `minLength` of the contract.
-  if value.len <= limit:
-    return value
-  if limit <= TruncationMarker.len:
-    return value[0 ..< limit]
-  result = value[0 ..< limit - TruncationMarker.len] & TruncationMarker
+  if limit <= 0:
+    return ""
+  let repaired = sanitizeUtf8(value)
+  var text = repaired.text
+  if repaired.repaired:
+    text = InvalidTextPrefix & text
+  let length = runeCount(text)
+  if length <= limit:
+    return text
+  # The marker is part of the value, and it must fit inside the bound.
+  if limit <= runeCount(TruncationMarker):
+    if limit < runeCount(ShortTruncationMarker):
+      return takeRunes(text, limit)
+    return takeRunes(text, limit - runeCount(ShortTruncationMarker)) &
+      ShortTruncationMarker
+  let keep = limit - runeCount(TruncationMarker)
+  takeRunes(text, keep) & TruncationMarker
 
 proc boundMessage*(value: string): string =
   ## Shorten a message to the contract's limit.
@@ -76,6 +116,12 @@ proc boundLocation*(value: string): string =
 
 proc boundCode*(value: string): string =
   ## Shorten a code to the contract's limit.
+  ##
+  ## A code is a stable, machine-readable identifier. Cutting it at the
+  ## limit would produce a *different* code, and a consumer that matched
+  ## on it would act on an identifier that the producer never issued. The
+  ## result therefore carries the truncation marker, which no real code
+  ## carries, so a shortened code cannot be read as an unrelated one.
   boundText(value, MaxCodeLength)
 
 proc boundDetail*(value: string): string =

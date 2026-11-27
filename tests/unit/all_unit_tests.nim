@@ -7,6 +7,7 @@
 import boundedread_tests
 import cli_args_tests
 import config_semantics_tests
+import outputbounds_tests
 import qualification_tests
 import schemapolicy_tests
 import strictjson_tests
@@ -17,6 +18,7 @@ proc main(): int =
   failures += boundedread_tests.runSuite()
   failures += cli_args_tests.runSuite()
   failures += config_semantics_tests.runSuite()
+  failures += outputbounds_tests.runSuite()
   failures += qualification_tests.runSuite()
   failures += schemapolicy_tests.runSuite()
   failures += strictjson_tests.runSuite()
