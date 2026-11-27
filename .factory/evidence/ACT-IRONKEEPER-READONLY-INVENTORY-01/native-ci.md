@@ -35,8 +35,12 @@ The storage gates that were added:
 | `45970216843` | `400360e3a0c0ebb91199c35a0c16850f05578f68` | **success** | secret scan, build and test (amd64), build and test (arm64), validator qualification |
 | `45971329094` | `6e00e91` | **success** | secret scan, build and test (amd64), build and test (arm64), validator qualification |
 | `45972040790` | `95a8030` | **success** | secret scan, build and test (amd64), build and test (arm64), validator qualification (the evidence commit) |
+| `45973380147` | `88ab2f4` | **success** | secret scan, build and test (amd64), build and test (arm64), validator qualification (the qualified subject) |
 
-The run `45971329094` executed the **implementation subject** `6e00e91`,
+The run `45973380147` executed the **qualified subject** `88ab2f4`,
+the commit that carries the whole implementation, the contracts, the
+tests, the gates and the documentation. The run `45971329094` executed
+the **implementation subject** `6e00e91`,
 which is the commit that carries the whole implementation, the contracts,
 the tests, the gates and the documentation. The commits that follow it
 change only the evidence documents; the implementation is unchanged, and
