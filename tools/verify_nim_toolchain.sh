@@ -3,12 +3,17 @@
 #
 # The bootstrap (`tools/install_nim_toolchain.sh`) is executed, not
 # sourced, so its exported PATH belongs to the child process and does
-# not survive the script. The later steps of a workflow learn about the
-# toolchain through `$GITHUB_PATH`, which the runner reads for every
-# following step.
+# not survive the script. The runner reads the installation step's
+# `$GITHUB_PATH` and updates the PATH of every following step, so the
+# toolchain is on the PATH of this step.
 #
-# This script is therefore the *separate* verification step. It checks
-# that:
+# `$GITHUB_PATH` is a **per-step** file: the verification step receives
+# a new, empty one. The installation directory is therefore *not* read
+# from it. It is derived from the deterministic installation path that
+# the bootstrap established, which is the only reliable statement of
+# where the toolchain was installed.
+#
+# This script checks that:
 #
 #   1. `nim` resolves to the intended toolchain directory;
 #   2. `nimble` resolves to the same directory;
@@ -18,11 +23,11 @@
 #
 # Environment:
 #   NIM_VERSION             the pinned version (default: 2.4.2)
-#   GITHUB_PATH             the file the runner reads PATH from; the last
-#                           entry is the directory the bootstrap appended
+#   RUNNER_TEMP             the writable scratch directory; the
+#                           installation path is derived from it
 #   IRK_NIM_TOOLCHAIN_DIR   the intended toolchain directory; when it is
-#                           set it wins over GITHUB_PATH. This is the
-#                           development and regression-check path.
+#                           set it wins over the derived path. This is
+#                           the development and synthetic-test override.
 #
 # Exit status:
 #   0  the pinned toolchain is in use
@@ -33,18 +38,15 @@ set -euo pipefail
 NIM_VERSION="${NIM_VERSION:-2.4.2}"
 
 # ---- the intended toolchain directory ----------------------------------------
-# The directory is the one the bootstrap appended to `$GITHUB_PATH`. An
-# unrelated compiler that is already on PATH is not accepted: the
-# workflow must use the pinned toolchain, not whatever the image
-# happens to carry.
+# The directory is the one the bootstrap installs into. It is derived
+# from the same inputs the bootstrap uses, so the two cannot disagree.
+# An unrelated compiler that is already on PATH is not accepted: the
+# workflow must use the pinned toolchain, not whatever the image happens
+# to carry.
 intended="${IRK_NIM_TOOLCHAIN_DIR:-}"
-if [ -z "$intended" ] && [ -n "${GITHUB_PATH:-}" ] && [ -f "${GITHUB_PATH}" ]; then
-  intended="$(tail -n 1 "${GITHUB_PATH}")"
-fi
-if [ -z "$intended" ]; then
-  echo "verify_nim_toolchain: the intended toolchain directory is unknown" >&2
-  echo "  neither IRK_NIM_TOOLCHAIN_DIR nor GITHUB_PATH names it" >&2
-  exit 1
+if [[ -z "$intended" ]]; then
+  : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
+  intended="$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin"
 fi
 
 # ---- the compiler ------------------------------------------------------------
