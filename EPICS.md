@@ -347,6 +347,17 @@ archive convention is:
 * **Next:** ACT-IRONKEEPER-READONLY-INVENTORY-01, once the native run of
   the subject has reached a terminal conclusion with all four jobs
   successful.
+* **Follow-ups (nonblocking):**
+  * Inject an *actual* failing `git diff` into the selective
+    requalification decision. The decision is fail-closed today, but the
+    failing-diff path is currently exercised through a broken repository
+    rather than through a diff that fails on its own.
+  * Make the UTF-8 handling of arbitrary object keys collision-safe
+    before any external telemetry ingestion. The repair of invalid bytes
+    is explicit today; two distinct keys that repair to the same text
+    are not yet distinguished.
+  * Qualify less often. The qualification is unconditional today. The
+    selective decision may only be given authority again after M1.
 
 ### ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-03
 

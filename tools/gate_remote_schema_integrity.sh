@@ -124,6 +124,115 @@ fi
 rm -f "$SUITE/remotes/draft2020-12/broken.json"
 
 echo
+echo "=== the qualification authority is decided by the verification ==="
+# The production qualification script decides the authority of its own
+# result. The decision is exercised here through the production script
+# itself, in its inputs-only mode: the decision is the production
+# decision, and the mode only avoids the measurement.
+QUALIFY="$ROOT/tools/qualify_validator.sh"
+
+# The digest of the synthetic suite, computed exactly as the production
+# script computes it.
+synthetic_digest() {
+  find "$SUITE/tests/draft2020-12" "$SUITE/remotes" -type f -name '*.json' | \
+    LC_ALL=C sort | \
+    while read -r f; do printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" \
+      "${f#"$SUITE"/}"; done | sha256sum | cut -d' ' -f1
+}
+
+# (a) A modified input with the repository pin is refused.
+set +e
+bash "$QUALIFY" --check-inputs-only --suite "$SUITE" > "$WORK/refused.out" 2>&1
+REFUSED_STATUS=$?
+set -e
+if [ "$REFUSED_STATUS" -ne 0 ]; then
+  ok "a modified input with the repository pin is refused"
+else
+  no "a modified input with the repository pin is refused"
+  cat "$WORK/refused.out"
+fi
+if grep -q "does not match the pinned digest" "$WORK/refused.out"; then
+  ok "the refusal names the pinned digest"
+else
+  no "the refusal names the pinned digest"
+fi
+if grep -q "^qualification_authoritative=true$" "$WORK/refused.out"; then
+  no "the refused input was classified as authoritative"
+else
+  ok "the refused input is not classified as authoritative"
+fi
+
+# (b) A modified input with a caller-supplied matching digest is a
+#     development-only result.
+DIGEST=$(synthetic_digest)
+set +e
+env IRK_QUALIFY_EXPECTED_INPUTS_DIGEST="$DIGEST" \
+  bash "$QUALIFY" --check-inputs-only --suite "$SUITE" > "$WORK/override.out" 2>&1
+OVERRIDE_STATUS=$?
+set -e
+if [ "$OVERRIDE_STATUS" -eq 0 ]; then
+  ok "a caller-supplied digest accepts the modified input"
+else
+  no "a caller-supplied digest accepts the modified input"
+  cat "$WORK/override.out"
+fi
+if grep -q "^qualification_authoritative=false$" "$WORK/override.out"; then
+  ok "a caller-supplied digest yields a non-authoritative result"
+else
+  no "a caller-supplied digest yields a non-authoritative result"
+  cat "$WORK/override.out"
+fi
+if grep -q "^qualification_classification=development-override$" "$WORK/override.out"; then
+  ok "the development-only result is classified as such"
+else
+  no "the development-only result is classified as such"
+fi
+
+# (c) A caller cannot promote that result to authoritative.
+set +e
+env IRK_QUALIFY_EXPECTED_INPUTS_DIGEST="$DIGEST" IRK_QUALIFY_AUTHORITATIVE=1 \
+  bash "$QUALIFY" --check-inputs-only --suite "$SUITE" > "$WORK/promote.out" 2>&1
+PROMOTE_STATUS=$?
+set -e
+if grep -q "^qualification_authoritative=true$" "$WORK/promote.out"; then
+  no "a caller promoted a development-only result to authoritative"
+else
+  ok "a caller cannot promote a development-only result to authoritative"
+fi
+if grep -q "^qualification_classification=development-override$" "$WORK/promote.out"; then
+  ok "the promotion attempt leaves the result development-only"
+else
+  no "the promotion attempt leaves the result development-only"
+fi
+
+# (d) The production gate refuses a development-only result.
+set +e
+env IRK_QUALIFY_EXPECTED_INPUTS_DIGEST="$DIGEST" IRK_QUALIFY_AUTHORITATIVE=1 \
+  IRK_QUALIFY_REQUIRE_AUTHORITATIVE=1 \
+  bash "$QUALIFY" --check-inputs-only --suite "$SUITE" > "$WORK/gate.out" 2>&1
+GATE_STATUS=$?
+set -e
+if [ "$GATE_STATUS" -ne 0 ]; then
+  ok "the production gate refuses a development-only result"
+else
+  no "the production gate refuses a development-only result"
+  cat "$WORK/gate.out"
+fi
+if grep -q "requires an authoritative qualification" "$WORK/gate.out"; then
+  ok "the gate names the authority requirement"
+else
+  no "the gate names the authority requirement"
+fi
+
+# The authority mechanism itself must be gone: no environment variable
+# may grant authority.
+if grep -q 'IRK_QUALIFY_AUTHORITATIVE' "$QUALIFY"; then
+  no "the qualification script still reads an authority assertion"
+else
+  ok "the qualification script reads no authority assertion"
+fi
+
+echo
 echo "=== the qualification script binds both trees ==="
 if grep -q 'REMOTES_DIR' tools/qualify_validator.sh; then
   ok "the qualification script digests the remote tree"

@@ -11,18 +11,15 @@
 # name was the whole value of PATH, and the shell then tried to execute
 # it. The step failed before the compiler was ever used.
 #
-# This check runs the **production** bootstrap script
-# (`tools/install_nim_toolchain.sh`) against a synthetic toolchain and
-# asserts the properties the CI job depends on:
+# A later defect had the same shape: the bootstrap is *executed*, so its
+# exported PATH belongs to the child process, and the verification of the
+# toolchain in the same shell found nothing on PATH. The bootstrap is
+# therefore executed here exactly as the workflow executes it, and the
+# verification runs as the *following step* does, through `$GITHUB_PATH`.
 #
-#   1. the compiler is on PATH afterwards;
-#   2. the directory is written to `$GITHUB_PATH`, which is the file the
-#      later steps read;
-#   3. `$PATH` itself is never written to as a file;
-#   4. a toolchain directory that does not exist is refused;
-#   5. a compiler that reports the wrong version is refused.
-#
-# The check needs no network and no hardware.
+# The check drives the **production** scripts:
+# `tools/install_nim_toolchain.sh` and `tools/verify_nim_toolchain.sh`.
+# Nothing is reimplemented here.
 #
 # Exit status:
 #   0  every property holds
@@ -42,19 +39,44 @@ FAILED=0
 ok() { echo "ok   $1"; PASSED=$((PASSED + 1)); }
 no() { echo "FAIL $1"; FAILED=$((FAILED + 1)); }
 
-# A synthetic toolchain: a directory with an executable `nim` that reports
-# the pinned version.
+# A synthetic toolchain: a directory with an executable `nim` that
+# reports the given version, and an executable `nimble`.
 make_toolchain() {
-  local dir="$1" version="$2"
+  local dir="$1" version="$2" with_nimble="${3:-yes}"
   mkdir -p "$dir/bin"
   cat > "$dir/bin/nim" <<EOF
 #!/bin/sh
 echo "Nim Compiler Version ${version} [Test: amd64]"
 EOF
   chmod +x "$dir/bin/nim"
+  if [ "$with_nimble" = "yes" ]; then
+    cat > "$dir/bin/nimble" <<'EOF'
+#!/bin/sh
+echo "Nimble Version 0.14.2 [Test: amd64]"
+EOF
+    chmod +x "$dir/bin/nimble"
+  fi
 }
 
-echo "=== the bootstrap puts the compiler on PATH and on GITHUB_PATH ==="
+# run_step <name> <command...>
+#
+# Runs a command as a *workflow step* would: the PATH of the step is the
+# PATH of the runner plus the directories that the earlier steps
+# appended to `$GITHUB_PATH`.
+run_step() {
+  local name="$1"
+  shift
+  local path="$PATH"
+  if [ -f "${GITHUB_PATH:-/dev/null}" ]; then
+    while IFS= read -r entry; do
+      [ -n "$entry" ] && path="$entry:$path"
+    done < "${GITHUB_PATH}"
+  fi
+  env PATH="$path" "$@" > "$WORK/$name.out" 2>&1
+  return $?
+}
+
+echo "=== the production invocation installs the toolchain ==="
 TC="$WORK/toolchain"
 make_toolchain "$TC" "9.9.9"
 export RUNNER_TEMP="$WORK/runner-temp"
@@ -64,49 +86,142 @@ export GITHUB_PATH="$WORK/github_path"
 export IRK_NIM_TOOLCHAIN_DIR="$TC/bin"
 export NIM_VERSION="9.9.9"
 
-# The bootstrap is *sourced* rather than executed, because PATH has to
-# survive into the caller for the property to be observable.
-# shellcheck source=tools/install_nim_toolchain.sh
-( . ./tools/install_nim_toolchain.sh > "$WORK/install.out" 2>&1
-  if command -v nim > /dev/null 2>&1; then
-    echo "nim is on PATH"
-  else
-    echo "nim is NOT on PATH"
-  fi
-  if nim --version | grep -q "Nim Compiler Version 9.9.9"; then
-    echo "the compiler runs and reports the pinned version"
-  else
-    echo "the compiler does not report the pinned version"
-  fi
-) > "$WORK/props.out" 2>&1
+# The bootstrap is *executed*, exactly as the workflow executes it.
+set +e
+"$ROOT/tools/install_nim_toolchain.sh" > "$WORK/install.out" 2>&1
+INSTALL_STATUS=$?
+set -e
+if [ "$INSTALL_STATUS" -eq 0 ]; then
+  ok "the bootstrap succeeds for the pinned version"
+else
+  no "the bootstrap succeeds for the pinned version"
+  cat "$WORK/install.out"
+fi
+if grep -q "^nim_version=9.9.9$" "$WORK/install.out"; then
+  ok "the bootstrap reports the exact pinned version"
+else
+  no "the bootstrap reports the exact pinned version"
+  cat "$WORK/install.out"
+fi
 
-if grep -q "nim is on PATH" "$WORK/props.out"; then
-  ok "the bootstrap puts the compiler on PATH"
+echo
+echo "=== the following workflow step resolves the intended toolchain ==="
+set +e
+run_step verify "$ROOT/tools/verify_nim_toolchain.sh"
+VERIFY_STATUS=$?
+set -e
+if [ "$VERIFY_STATUS" -eq 0 ]; then
+  ok "the verification step succeeds"
 else
-  no "the bootstrap puts the compiler on PATH"
+  no "the verification step succeeds"
+  cat "$WORK/verify.out"
 fi
-if grep -q "the compiler runs and reports the pinned version" "$WORK/props.out"; then
-  ok "the compiler runs after the bootstrap"
+if grep -q "^nim_path=$TC/bin/nim$" "$WORK/verify.out"; then
+  ok "nim resolves to the intended toolchain"
 else
-  no "the compiler runs after the bootstrap"
+  no "nim resolves to the intended toolchain"
+  cat "$WORK/verify.out"
 fi
-if grep -qx "$TC/bin" "$GITHUB_PATH"; then
-  ok "the toolchain directory is written to GITHUB_PATH"
+if grep -q "^nimble_path=$TC/bin/nimble$" "$WORK/verify.out"; then
+  ok "nimble resolves to the intended toolchain"
 else
-  no "the toolchain directory is written to GITHUB_PATH"
+  no "nimble resolves to the intended toolchain"
+  cat "$WORK/verify.out"
+fi
+
+echo
+echo "=== an unrelated preinstalled toolchain is not accepted ==="
+# A compiler that is earlier on PATH must not satisfy the verification.
+OTHER="$WORK/other-toolchain"
+make_toolchain "$OTHER" "9.9.9"
+set +e
+env PATH="$OTHER/bin:$PATH" IRK_NIM_TOOLCHAIN_DIR="$TC/bin" \
+  NIM_VERSION="9.9.9" "$ROOT/tools/verify_nim_toolchain.sh" \
+  > "$WORK/unrelated.out" 2>&1
+UNRELATED_STATUS=$?
+set -e
+if [ "$UNRELATED_STATUS" -ne 0 ]; then
+  ok "an unrelated compiler on PATH is refused"
+else
+  no "an unrelated compiler on PATH is refused"
+  cat "$WORK/unrelated.out"
+fi
+
+echo
+echo "=== a prefix-matching but incorrect version is refused ==="
+# 9.9.90 starts with 9.9.9. A prefix comparison would accept it.
+WRONG="$WORK/wrong-toolchain"
+make_toolchain "$WRONG" "9.9.90"
+: > "$GITHUB_PATH"
+set +e
+env IRK_NIM_TOOLCHAIN_DIR="$WRONG/bin" NIM_VERSION="9.9.9" \
+  "$ROOT/tools/install_nim_toolchain.sh" > "$WORK/wrong.out" 2>&1
+WRONG_STATUS=$?
+set -e
+if [ "$WRONG_STATUS" -ne 0 ]; then
+  ok "a prefix-matching but incorrect version fails the bootstrap"
+else
+  no "a prefix-matching but incorrect version fails the bootstrap"
+  cat "$WORK/wrong.out"
+fi
+if grep -q "unexpected compiler version" "$WORK/wrong.out"; then
+  ok "the bootstrap names the version mismatch"
+else
+  no "the bootstrap names the version mismatch"
+fi
+
+echo
+echo "=== a missing compiler fails ==="
+: > "$GITHUB_PATH"
+set +e
+env IRK_NIM_TOOLCHAIN_DIR="$WORK/does-not-exist/bin" NIM_VERSION="9.9.9" \
+  "$ROOT/tools/install_nim_toolchain.sh" > "$WORK/missing.out" 2>&1
+MISSING_STATUS=$?
+set -e
+if [ "$MISSING_STATUS" -ne 0 ]; then
+  ok "a missing compiler fails the bootstrap"
+else
+  no "a missing compiler fails the bootstrap"
+  cat "$WORK/missing.out"
+fi
+if grep -qE "the compiler is not executable|the toolchain directory does not exist" \
+     "$WORK/missing.out"; then
+  ok "the bootstrap names the missing toolchain"
+else
+  no "the bootstrap names the missing toolchain"
+fi
+
+echo
+echo "=== a missing nimble fails the toolchain verification ==="
+NO_NIMBLE="$WORK/no-nimble-toolchain"
+make_toolchain "$NO_NIMBLE" "9.9.9" no
+: > "$GITHUB_PATH"
+set +e
+env PATH="$NO_NIMBLE/bin:$PATH" IRK_NIM_TOOLCHAIN_DIR="$NO_NIMBLE/bin" \
+  NIM_VERSION="9.9.9" \
+  "$ROOT/tools/verify_nim_toolchain.sh" > "$WORK/nonimble.out" 2>&1
+NONIMBLE_STATUS=$?
+set -e
+if [ "$NONIMBLE_STATUS" -ne 0 ]; then
+  ok "a missing nimble fails the toolchain verification"
+else
+  no "a missing nimble fails the toolchain verification"
+  cat "$WORK/nonimble.out"
+fi
+if grep -q "nimble is not on PATH" "$WORK/nonimble.out"; then
+  ok "the verification names the missing package manager"
+else
+  no "the verification names the missing package manager"
 fi
 
 echo
 echo "=== the bootstrap does not write to PATH as if it were a file ==="
-# The defect wrote to a file named after the whole value of PATH. If that
-# happened, a file whose name contains the PATH value would appear.
 STRAY=$(find "$WORK" -maxdepth 3 -type f -name '*:*' 2>/dev/null | head -1)
 if [ -n "$STRAY" ]; then
   no "a file was created by writing to PATH: $STRAY"
 else
   ok "no file was created by writing to PATH"
 fi
-# And the source of the bootstrap must not contain the defective form.
 if grep -n '>> *"\$PATH"' tools/install_nim_toolchain.sh; then
   no "the bootstrap still appends to PATH with a redirection"
 else
@@ -114,48 +229,16 @@ else
 fi
 
 echo
-echo "=== the bootstrap refuses a missing toolchain ==="
-export IRK_NIM_TOOLCHAIN_DIR="$WORK/does-not-exist/bin"
-set +e
-( . ./tools/install_nim_toolchain.sh > "$WORK/missing.out" 2>&1 )
-MISSING_STATUS=$?
-set -e
-# The subshell's status is the status of its last command, so the script's
-# own exit status is read from the output instead.
-if grep -q "the compiler is not executable" "$WORK/missing.out" ||
-   grep -q "the toolchain directory does not exist" "$WORK/missing.out"; then
-  ok "a missing compiler is refused"
-else
-  no "a missing compiler is refused"
-  cat "$WORK/missing.out"
-fi
-if [ "$MISSING_STATUS" -ne 0 ]; then
-  ok "a missing compiler fails the bootstrap"
-else
-  no "a missing compiler fails the bootstrap"
-fi
-
-echo
-echo "=== the bootstrap refuses a compiler with the wrong version ==="
-BAD="$WORK/bad-toolchain"
-make_toolchain "$BAD" "1.0.0"
-export IRK_NIM_TOOLCHAIN_DIR="$BAD/bin"
-set +e
-( . ./tools/install_nim_toolchain.sh > "$WORK/bad.out" 2>&1 )
-set -e
-if grep -q "unexpected compiler version" "$WORK/bad.out"; then
-  ok "a compiler with the wrong version is refused"
-else
-  no "a compiler with the wrong version is refused"
-  cat "$WORK/bad.out"
-fi
-
-echo
-echo "=== the CI workflow uses the shared bootstrap ==="
+echo "=== the CI workflow uses the shared bootstrap and verifies it ==="
 if grep -q 'install_nim_toolchain.sh' .github/workflows/ci.yml; then
   ok "the workflow calls the shared bootstrap"
 else
   no "the workflow calls the shared bootstrap"
+fi
+if grep -q 'verify_nim_toolchain.sh' .github/workflows/ci.yml; then
+  ok "the workflow verifies the toolchain in its own step"
+else
+  no "the workflow verifies the toolchain in its own step"
 fi
 if grep -n '>> *"\$PATH"' .github/workflows/ci.yml; then
   no "the workflow still appends to PATH with a redirection"

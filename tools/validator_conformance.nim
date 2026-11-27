@@ -55,7 +55,7 @@ from ironkeeper/qualification/corpus import readCorpus, Corpus, CorpusCase
 from ironkeeper/qualification/harness import runCorpus, QualificationReport,
   Exclusion, failures, unauthorisedExclusions, invalidEvidence,
   renderSummary, productVerdict, Scope, scUpstream, scAdapter,
-  upstreamLimitations, mandatoryResults, optionalResults
+  upstreamLimitations, mandatoryResults, optionalResults, optionalCounts
 from ironkeeper/qualification/providers import newRawRegistry, rawProvider,
   adapterProvider, subsetJudge, RemoteBaseUri
 from ironkeeper/qualification/remotes import readRemoteSchemas
@@ -212,6 +212,21 @@ proc main() =
   echo "raw_optional_cases=", optionalResults(rawReport).len
   echo "adapter_mandatory_cases=", mandatoryResults(adapterReport).len
   echo "adapter_optional_cases=", optionalResults(adapterReport).len
+  # The optional corpus was observed, and its observed results are
+  # reported separately from the mandatory ones. An optional case is
+  # never counted as a measured success it did not achieve.
+  let rawOptional = optionalCounts(rawReport)
+  let adapterOptional = optionalCounts(adapterReport)
+  echo "raw_optional_observed_total=", rawOptional.total
+  echo "raw_optional_observed_passed=", rawOptional.passed
+  echo "raw_optional_observed_failed=", rawOptional.failed
+  echo "raw_optional_observed_excluded=", rawOptional.total -
+       rawOptional.passed - rawOptional.failed
+  echo "adapter_optional_observed_total=", adapterOptional.total
+  echo "adapter_optional_observed_passed=", adapterOptional.passed
+  echo "adapter_optional_observed_failed=", adapterOptional.failed
+  echo "adapter_optional_observed_excluded=", adapterOptional.total -
+       adapterOptional.passed - adapterOptional.failed
   if (invalidEvidence(rawReport).len > 0) or
      (invalidEvidence(adapterReport).len > 0):
     quit(1)

@@ -85,8 +85,15 @@ jobs:
           # distribution is per-architecture, and the runner's own
           # architecture selects it: downloading the x86-64 distribution
           # on an arm64 runner produces a binary that cannot be executed.
+          #
+          # The script is *executed*, so its exported PATH belongs to the
+          # child process. The later steps learn about the toolchain
+          # through `$GITHUB_PATH`, which the runner reads for every
+          # following step.
           tools/install_nim_toolchain.sh
-          nimble --version
+
+      - name: Verify the pinned toolchain
+        run: tools/verify_nim_toolchain.sh
 
       # std/re, which the JSON Schema validator uses for `pattern`, loads
       # PCRE dynamically at run time. The Nim distribution does not bundle
@@ -281,7 +288,12 @@ jobs:
           set -euo pipefail
           # The same repository-owned bootstrap as the build job, so that
           # the toolchain is installed and put on PATH in exactly one way.
+          # The verification is a separate step, because the bootstrap is
+          # executed and its exported PATH does not survive it.
           tools/install_nim_toolchain.sh
+
+      - name: Verify the pinned toolchain
+        run: tools/verify_nim_toolchain.sh
 
       - name: Install the PCRE runtime dependency
         run: |
@@ -334,8 +346,18 @@ jobs:
       # the selective decision is a *cost* optimisation, not a gate.
       # The decision is still recorded, so that the cost optimisation can
       # be inspected afterwards.
+      # The qualification must be **authoritative**: only a successful
+      # verification against the repository-pinned inputs can produce
+      # that classification. A caller-supplied digest produces a
+      # development-only result, and the gate refuses it.
       - name: Qualify the validator
-        run: tools/qualify_validator.sh
+        env:
+          IRK_QUALIFY_REQUIRE_AUTHORITATIVE: "1"
+        run: |
+          set -euo pipefail
+          tools/qualify_validator.sh 2>&1 | tee qualification-output.txt
+          grep -q '^qualification_authoritative=true$' qualification-output.txt
+          grep -q '^qualification_classification=pinned-verified$' qualification-output.txt
 
       - name: Record the requalification decision
         env:

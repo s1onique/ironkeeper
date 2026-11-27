@@ -287,6 +287,30 @@ proc optionalResults*(report: QualificationReport): seq[CaseResult] =
     if r.optional:
       result.add r
 
+proc optionalCounts*(report: QualificationReport): tuple[total: int,
+                                                      passed: int,
+                                                      failed: int] =
+  ## The observed results of the optional corpus.
+  ##
+  ## The optional cases do not count towards the denominator of the
+  ## measurement, but they were *observed*: the harness ran them and
+  ## compared the answer with the expected one. Their results are
+  ## reported separately, so that an optional case is never described as
+  ## a measured success it did not achieve, and never hidden.
+  for r in report.results:
+    if not r.optional:
+      continue
+    inc result.total
+    let c = classificationOf(r)
+    if c in {clCorrectAcceptance, clCorrectRejection}:
+      inc result.passed
+    elif c in {clFalseAcceptance, clFalseRejection, clExecutionError}:
+      inc result.failed
+  # The remaining optional cases were excluded from the measurement: they
+  # lie outside the supported subset, or they carry a number the
+  # document model cannot represent. They are neither a pass nor a
+  # failure, and they are reported as excluded.
+
 proc failures*(report: QualificationReport): seq[CaseResult] =
   ## The cases that failed the measurement.
   failuresOf(report.results)

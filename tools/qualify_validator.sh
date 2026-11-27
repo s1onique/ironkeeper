@@ -67,40 +67,35 @@ cleanup() {
 trap cleanup EXIT
 
 SUITE_DIR=""
-if [ "${1:-}" = "--suite" ]; then
-  SUITE_DIR="$2"
-fi
-
-# ---- the validator --------------------------------------------------------
-# The dependency is resolved at the exact commit and its tree digest is
-# verified. The digest pins the whole tree, so a rewritten tag or a
-# changed file is detected.
-DEPS="$WORK/jschema"
-git clone --quiet "$JSCHEMA_REPO" "$DEPS"
-git -C "$DEPS" checkout --quiet "$JSCHEMA_COMMIT"
-ACTUAL_TREE=$(git -C "$DEPS" archive HEAD | sha256sum | cut -d' ' -f1)
-if [ "$ACTUAL_TREE" != "$JSCHEMA_TREE_SHA256" ]; then
-  echo "qualify_validator: the validator tree digest does not match" >&2
-  echo "  expected: $JSCHEMA_TREE_SHA256" >&2
-  echo "  actual:   $ACTUAL_TREE" >&2
-  exit 1
-fi
-echo "validator_commit=$JSCHEMA_COMMIT"
-echo "validator_tree_sha256=$ACTUAL_TREE"
+CHECK_INPUTS_ONLY=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --suite)
+      SUITE_DIR="$2"
+      shift 2
+      ;;
+    --check-inputs-only)
+      # Verify the identity of the inputs and the authority of the
+      # result, and stop. The decision is the production decision; the
+      # mode only avoids the measurement, so that the decision can be
+      # exercised cheaply.
+      CHECK_INPUTS_ONLY=1
+      shift
+      ;;
+    *)
+      echo "usage: tools/qualify_validator.sh [--suite <path>] [--check-inputs-only]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 # ---- the test suite -------------------------------------------------------
+# The suite is resolved before the inputs are identified: the identity of
+# the inputs is a property of the suite that is measured.
 if [ -z "$SUITE_DIR" ]; then
   SUITE_DIR="$WORK/suite"
   git clone --quiet --branch legacy "$SUITE_REPO" "$SUITE_DIR"
 fi
-ACTUAL_SUITE=$(git -C "$SUITE_DIR" rev-parse HEAD)
-if [ "$ACTUAL_SUITE" != "$SUITE_REVISION" ]; then
-  echo "qualify_validator: the test suite is not at the pinned revision" >&2
-  echo "  expected: $SUITE_REVISION" >&2
-  echo "  actual:   $ACTUAL_SUITE" >&2
-  exit 1
-fi
-echo "suite_revision=$ACTUAL_SUITE"
 
 # ---- the input identity ------------------------------------------------------
 # The tested input is identified by its own digest, not only by the
@@ -125,24 +120,48 @@ echo "inputs_digest_sha256=$INPUTS_DIGEST"
 SUITE_INPUTS_DIGEST="45bf30e6bc639547d4b7a75fe152fce5451e523fa976ff82f0576e9c6fcd1322"
 EXPECTED_INPUTS_DIGEST="$SUITE_INPUTS_DIGEST"
 
-# A caller-supplied digest override is a **development** convenience. It
-# is accepted only when the caller states that the result is not
-# authoritative, and the result is classified accordingly: an
-# unqualified override never produces an authoritative verdict.
-AUTHORITATIVE=1
+# The authority of the result is decided here, and it is decided by the
+# *verification*, never by an assertion.
+#
+#   * The inputs match the repository-pinned digest: the result is
+#     authoritative. Nothing but this comparison can make it so.
+#   * The inputs do not match the pinned digest and the caller supplied
+#     an expected digest of their own: the result is a **development
+#     only** result. It is never authoritative, and there is no
+#     environment variable that can promote it: the caller's digest
+#     replaces the *expectation*, not the *authority*.
+#   * The inputs do not match the pinned digest and no expected digest
+#     was supplied: the inputs are refused.
+AUTHORITATIVE=false
+CLASSIFICATION=""
 if [ -n "${IRK_QUALIFY_EXPECTED_INPUTS_DIGEST:-}" ]; then
+  # A development override. The caller's digest is used to accept the
+  # inputs, but the result can never be authoritative.
   EXPECTED_INPUTS_DIGEST="$IRK_QUALIFY_EXPECTED_INPUTS_DIGEST"
-  if [ "${IRK_QUALIFY_AUTHORITATIVE:-0}" != "1" ]; then
-    echo "qualification_authoritative=false"
-    echo "qualification_classification=development-override"
-    echo "qualify_validator: the expected digest was supplied by the caller;" >&2
-    echo "  the result is therefore NOT authoritative" >&2
-  else
-    echo "qualification_authoritative=true"
-  fi
+  CLASSIFICATION="development-override"
+  echo "qualify_validator: the expected digest was supplied by the caller;" >&2
+  echo "  the result is a development-only result and is NOT authoritative" >&2
 else
-  echo "qualification_authoritative=true"
+  if [ "$EXPECTED_INPUTS_DIGEST" != "$INPUTS_DIGEST" ]; then
+    echo "qualify_validator: the tested input does not match the pinned digest" >&2
+    echo "  expected: $EXPECTED_INPUTS_DIGEST" >&2
+    echo "  actual:   $INPUTS_DIGEST" >&2
+    exit 1
+  fi
+  AUTHORITATIVE=true
+  CLASSIFICATION="pinned-verified"
 fi
+
+echo "qualification_authoritative=$AUTHORITATIVE"
+echo "qualification_classification=$CLASSIFICATION"
+# The classification is written to a file as well, so that a gate can
+# require it without parsing a log.
+AUTHORITY_FILE="$ROOT/qualification-authority.txt"
+{
+  echo "qualification_authoritative=$AUTHORITATIVE"
+  echo "qualification_classification=$CLASSIFICATION"
+  echo "inputs_digest_sha256=$INPUTS_DIGEST"
+} > "$AUTHORITY_FILE"
 
 if [ "$EXPECTED_INPUTS_DIGEST" != "$INPUTS_DIGEST" ]; then
   echo "qualify_validator: the tested input does not match the expected digest" >&2
@@ -151,6 +170,52 @@ if [ "$EXPECTED_INPUTS_DIGEST" != "$INPUTS_DIGEST" ]; then
   exit 1
 fi
 echo "inputs_digest_verified=true"
+
+# The production gate requires an authoritative qualification. A
+# development-only result is refused by the gate that demands it. The
+# check comes before the inputs-only exit, so that the gate holds in
+# every mode.
+if [ "${IRK_QUALIFY_REQUIRE_AUTHORITATIVE:-0}" = "1" ] && \
+   [ "$AUTHORITATIVE" != "true" ]; then
+  echo "qualify_validator: the gate requires an authoritative qualification, and" >&2
+  echo "  this result is '$CLASSIFICATION'" >&2
+  exit 1
+fi
+
+if [ "$CHECK_INPUTS_ONLY" = "1" ]; then
+  echo "qualification_inputs_only=true"
+  exit 0
+fi
+
+# ---- the suite revision ---------------------------------------------------
+# The suite must be the pinned revision. The digest above identifies the
+# *consumed* inputs; the revision identifies the whole tree they came
+# from.
+ACTUAL_SUITE=$(git -C "$SUITE_DIR" rev-parse HEAD 2>/dev/null || echo "")
+if [ "$ACTUAL_SUITE" != "$SUITE_REVISION" ]; then
+  echo "qualify_validator: the test suite is not at the pinned revision" >&2
+  echo "  expected: $SUITE_REVISION" >&2
+  echo "  actual:   ${ACTUAL_SUITE:-<unknown>}" >&2
+  exit 1
+fi
+echo "suite_revision=$ACTUAL_SUITE"
+
+# ---- the validator --------------------------------------------------------
+# The dependency is resolved at the exact commit and its tree digest is
+# verified. The digest pins the whole tree, so a rewritten tag or a
+# changed file is detected.
+DEPS="$WORK/jschema"
+git clone --quiet "$JSCHEMA_REPO" "$DEPS"
+git -C "$DEPS" checkout --quiet "$JSCHEMA_COMMIT"
+ACTUAL_TREE=$(git -C "$DEPS" archive HEAD | sha256sum | cut -d' ' -f1)
+if [ "$ACTUAL_TREE" != "$JSCHEMA_TREE_SHA256" ]; then
+  echo "qualify_validator: the validator tree digest does not match" >&2
+  echo "  expected: $JSCHEMA_TREE_SHA256" >&2
+  echo "  actual:   $ACTUAL_TREE" >&2
+  exit 1
+fi
+echo "validator_commit=$JSCHEMA_COMMIT"
+echo "validator_tree_sha256=$ACTUAL_TREE"
 
 # ---- the remote schema tree --------------------------------------------------
 # The remote schemas are mandatory inputs. A missing or malformed remote

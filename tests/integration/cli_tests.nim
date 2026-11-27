@@ -283,6 +283,50 @@ proc runSuite*(): int =
   t.check("report validate reports it as a semantic failure", r.exitCode == 6)
   t.checkContains("the reason is named", r.stdoutText, "PASS assessment")
 
+  # A truncated findings collection cannot claim PASS.
+  #
+  # The document is structurally valid: the truncation marker is an
+  # ordinary finding. The *semantic* layer is what rejects the claim,
+  # because the report does not know which findings it dropped.
+  proc writeTruncatedReport(name, verdict: string): string =
+    ## Write a structurally valid report whose findings were truncated.
+    let path = semTmp / name
+    var text = "{\n"
+    text.add "  \"schema_version\": 1,\n"
+    text.add "  \"report_type\": \"configuration_validation\",\n"
+    text.add "  \"report_id\": {\"id\": \"r1\", " &
+      "\"created_at\": \"2026-01-02T03:04:05Z\"},\n"
+    text.add "  \"producer\": {\"name\": \"ironkeeper\", \"version\": \"0.1.0\"},\n"
+    text.add "  \"execution\": {\"state\": \"SUCCEEDED\", " &
+      "\"started_at\": \"2026-01-02T03:04:05Z\", " &
+      "\"finished_at\": \"2026-01-02T03:04:05Z\"},\n"
+    text.add "  \"assessment\": {\"verdict\": \"" & verdict &
+      "\", \"summary\": \"checked\"},\n"
+    text.add "  \"findings\": [\n"
+    text.add "    {\"code\": \"config.schema_violation\", " &
+      "\"severity\": \"error\", \"message\": \"a violation\"},\n"
+    text.add "    {\"code\": \"findings.truncated\", " &
+      "\"severity\": \"warning\", " &
+      "\"message\": \"the findings collection was truncated: 2 " &
+      "finding(s) were dropped\"}\n"
+    text.add "  ]\n}\n"
+    writeFile(path, text)
+    path
+
+  let truncatedPass = writeTruncatedReport("truncated-pass.json", "PASS")
+  r = runBinary(@["report", "validate", "--file", truncatedPass, "--json"])
+  t.check("report validate rejects a PASS verdict on a truncated collection",
+    r.exitCode != 0)
+  t.check("report validate reports it as a semantic failure", r.exitCode == 6)
+  t.checkContains("the reason is named", r.stdoutText,
+    "truncated")
+
+  let truncatedWarn = writeTruncatedReport("truncated-warn.json", "WARN")
+  r = runBinary(@["report", "validate", "--file", truncatedWarn, "--json"])
+  t.check("report validate accepts a non-PASS verdict on a truncated collection",
+    r.exitCode == 0)
+  t.checkContains("the document is reported as valid", r.stdoutText, "\"valid\": true")
+
   # An unsupported schema version has its own documented classification.
   let versionPath = semTmp / "bad-version.json"
   writeFile(versionPath, """{"schema_version": 99}""")

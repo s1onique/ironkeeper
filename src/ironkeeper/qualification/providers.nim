@@ -24,7 +24,7 @@ from ironkeeper/contracts/schemapolicy import checkSchemaPolicy
 from ironkeeper/contracts/schemarefs import checkReferencePolicy
 from ironkeeper/qualification/corpus import CorpusCase
 from ironkeeper/qualification/harness import ProviderOutcome, Exclusion
-from ironkeeper/qualification.remotes import readRemoteSchemas
+from ironkeeper/qualification/remotes import readRemoteSchemas
 from ironkeeper/qualification/verdict import ObservedVerdict
 
 const

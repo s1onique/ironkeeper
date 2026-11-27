@@ -23,6 +23,13 @@
 #                        development and regression-check path; the digest
 #                        is then not applicable and is not checked.
 #
+# The script is *executed*, not sourced. Its exported PATH therefore
+# belongs to the child process and does not survive the script. The
+# later steps of a workflow learn about the toolchain through
+# `$GITHUB_PATH`, which the runner reads for every following step, and
+# the toolchain is verified in its own step by
+# `tools/verify_nim_toolchain.sh`.
+#
 # Exit status:
 #   0  the toolchain is installed and on PATH
 #   1  the toolchain could not be installed or verified
@@ -85,13 +92,20 @@ fi
 # ---- prove the toolchain works ----------------------------------------------
 # The version is checked, not merely printed: a compiler from a different
 # version would pass unnoticed otherwise.
+#
+# The comparison is on the *exact* version token. A prefix comparison
+# accepts a compiler that merely starts with the pinned version, so
+# 9.9.90 would pass a check for 9.9.9. The token is extracted from the
+# first line of the compiler's own output and compared as a whole.
 reported="$(nim --version | head -1)"
-case "$reported" in
-  *"Nim Compiler Version ${NIM_VERSION}"*) ;;
-  *)
-    echo "install_nim_toolchain: unexpected compiler version: $reported" >&2
-    exit 1
-    ;;
-esac
+actual_version="$(printf '%s\n' "$reported" | awk '{print $4}')"
+if [ "$actual_version" != "$NIM_VERSION" ]; then
+  echo "install_nim_toolchain: unexpected compiler version" >&2
+  echo "  expected: $NIM_VERSION" >&2
+  echo "  actual:   ${actual_version:-<unparsable>}" >&2
+  echo "  reported: $reported" >&2
+  exit 1
+fi
 echo "nim_bin=$nim_bin"
+echo "nim_version=$actual_version"
 echo "$reported"
