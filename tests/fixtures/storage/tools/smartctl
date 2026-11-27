@@ -32,7 +32,7 @@ JSON
 {"json_format_version": [1, 0],
  "smartctl": {"version": [7, 5], "exit_status": 0},
  "model_name": "Samsung SSD 970 EVO Plus",
- "serial_number": "S4EUNM0R000000A",
+ "serial_number": "SYNTHETIC-NVME-000000A",
  "firmware_version": "2B2QEXM7",
  "nvme_smart_health_information_log": {
    "critical_warning": 0, "temperature": 312, "available_spare": 100,

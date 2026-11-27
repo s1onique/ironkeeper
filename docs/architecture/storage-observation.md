@@ -162,8 +162,8 @@ an operator explicitly asked for.
 
 ### Reconciliation
 
-* Identifier formats are canonicalised (`naa.5000cca0570377c4`,
-  `0x5000cca0570377c4` and the bare hex digits denote the same
+* Identifier formats are canonicalised (`naa.5000c50001234567`,
+  `0x5000c50001234567` and the bare hex digits denote the same
   identifier), and the original value is preserved alongside it.
 * Aliases are deduplicated.
 * Conflicting identifiers, duplicated serials and duplicated WWNs are

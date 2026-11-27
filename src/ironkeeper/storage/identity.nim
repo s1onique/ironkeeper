@@ -78,8 +78,8 @@ proc stripHexPrefix(s: string): string =
 proc canonicalizeWwn(raw: string): string =
   ## Canonicalise a world-wide name.
   ##
-  ## The Linux kernel reports a SCSI WWN as `naa.5000cca0570377c4`, udev as
-  ## `0x5000cca0570377c4`, and some tools as the bare hex digits. All
+  ## The Linux kernel reports a SCSI WWN as `naa.5000c50001234567`, udev as
+  ## `0x5000c50001234567`, and some tools as the bare hex digits. All
   ## three denote the same identifier, so all three canonicalise to the
   ## lowercase hex digits. A value that is not hexadecimal is returned
   ## unchanged, so that a malformed value is visible rather than hidden.

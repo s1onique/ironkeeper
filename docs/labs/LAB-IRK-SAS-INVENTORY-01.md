@@ -70,7 +70,7 @@ The operator identifies the expected stable WWN and verifies that the
 intended device is safe to interrogate:
 
 ```sh
-EXPECTED_WWN=0x5000cca0...        # supplied locally by the operator
+EXPECTED_WWN=0x<wwn>           # supplied locally by the operator
 ```
 
 Confirm the target before interrogating it:
