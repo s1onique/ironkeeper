@@ -83,7 +83,10 @@ proc createExclusiveDir(path: string): bool =
   ## is never observable with wider permissions. The creation is
   ## exclusive: an existing directory makes it fail, and the caller
   ## chooses another name.
-  if mkdir(path.cstring, 0x1c0'u16) != 0:
+  # The mode is expressed through the `Mode` type of the platform, so that
+  # the same source compiles where `mode_t` is 16 bits and where it is 32
+  # bits.
+  if mkdir(path.cstring, Mode(0x1c0)) != 0:
     return false
   true
 
@@ -93,7 +96,8 @@ proc writeExclusive(path: string, content: string): bool =
   ## The file is created with `O_EXCL`, so an existing file is never
   ## overwritten and a symlink is never followed. The permissions are
   ## 0600.
-  let fd = posix.open(path.cstring, O_WRONLY or O_CREAT or O_EXCL, 0x180'u16)
+  let fd = posix.open(path.cstring, O_WRONLY or O_CREAT or O_EXCL,
+                      Mode(0x180))
   if fd < 0:
     return false
   var bytes = newSeq[byte](content.len)
