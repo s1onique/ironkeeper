@@ -139,11 +139,12 @@ proc runSuite*(): int =
   # ---- the passive discovery runs no observation tool ---------------------
   # The controlled `smartctl` records every execution in a marker file.
   # A passive command must never create it.
-  let marker = getTempDir() / "ironkeeper-passive-marker"
-  removeFile(marker)
+  let markerDir = getTempDir() / "ironkeeper-passive-marker"
+  removeDir(markerDir)
+  copyDir(fixtureRoot() / "tools-marker", markerDir)
+  let marker = markerDir / "executed.marker"
   var markerEnv = storageEnv()
-  markerEnv["IRONKEEPER_TEST_TOOL_DIR"] = fixtureRoot() / "tools-marker"
-  markerEnv["IRONKEEPER_MARKER_FILE"] = marker
+  markerEnv["IRONKEEPER_TEST_TOOL_DIR"] = markerDir
   r = runBinary(@["inventory", "list", "--json"], markerEnv)
   t.checkEq("the passive inventory succeeds", r.exitCode, 0)
   t.check("the passive inventory runs no observation tool", not fileExists(marker))
@@ -389,11 +390,12 @@ proc runSuite*(): int =
   t.check("the production binary exists (" & production & ")",
           fileExists(production))
   if fileExists(production):
-    let prodMarker = getTempDir() / "ironkeeper-production-marker"
-    removeFile(prodMarker)
+    let prodMarkerDir = getTempDir() / "ironkeeper-production-marker"
+    removeDir(prodMarkerDir)
+    copyDir(fixtureRoot() / "tools-marker", prodMarkerDir)
+    let prodMarker = prodMarkerDir / "executed.marker"
     var prodEnv = initTable[string, string]()
-    prodEnv["IRONKEEPER_TEST_TOOL_DIR"] = fixtureRoot() / "tools-marker"
-    prodEnv["IRONKEEPER_MARKER_FILE"] = prodMarker
+    prodEnv["IRONKEEPER_TEST_TOOL_DIR"] = prodMarkerDir
     prodEnv["IRONKEEPER_SYSFS_ROOT"] = fixtureRoot() / "sys"
     prodEnv["IRONKEEPER_DEV_ROOT"] = fixtureRoot() / "dev"
     prodEnv["IRONKEEPER_UDEV_ROOT"] = fixtureRoot() / "run/udev/data"
@@ -402,12 +404,29 @@ proc runSuite*(): int =
                                 "--json"], prodEnv, production)
     t.check("the production binary does not execute the marker",
             not fileExists(prodMarker))
+    # The discriminator is the **path** of the synthetic discovery root.
+    # A production binary that read the synthetic tree would report it in
+    # the `sysfs_path` of the device. The assertion therefore does not
+    # depend on the devices of the machine that runs the suite.
     t.check("the production binary does not read the synthetic tree",
-            prodResult.stdoutText.len == 0 or
-            not prodResult.stdoutText.contains("\"sdb\""))
+            not prodResult.stdoutText.contains("tests/fixtures/storage/sys"))
 
     # The two binaries identify themselves. A test-enabled binary can
     # never be mistaken for a production one.
+    # The positive control: the **test-enabled** binary honours the very
+    # same environment variables, so the marker *is* created and the
+    # synthetic device *is* found. Without this control the isolation
+    # witness would pass on a binary that simply failed.
+    let controlMarkerDir = getTempDir() / "ironkeeper-control-marker"
+    removeDir(controlMarkerDir)
+    copyDir(fixtureRoot() / "tools-marker", controlMarkerDir)
+    var controlEnv = prodEnv
+    controlEnv["IRONKEEPER_TEST_TOOL_DIR"] = controlMarkerDir
+    discard runBinary(@["device", "inspect", "--wwn", "5000c500a1b2c3d4",
+                        "--smart", "--allow-wake", "--json"], controlEnv)
+    t.check("the test-enabled binary does execute the marker",
+            fileExists(controlMarkerDir / "executed.marker"))
+
     var prodVersion = runBinary(@["version", "--json"], prodEnv, production)
     t.checkContains("the production binary identifies its variant",
                     prodVersion.stdoutText, "\"build_variant\": \"production\"")
