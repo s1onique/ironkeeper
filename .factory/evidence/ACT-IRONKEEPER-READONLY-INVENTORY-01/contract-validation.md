@@ -52,3 +52,37 @@ The storage contracts carry the byte counts and the large counters as
 **canonical decimal strings**, because a value beyond 2^53 does not fit
 the internal exact-number domain. The internal domain itself was **not**
 widened.
+
+## The authoritative validator qualification
+
+The qualification is the **existing** repository-owned gate, driven by
+the **existing** CI job. It was not modified by this ACT.
+
+```text
+qualification_authoritative=true
+qualification_classification=pinned-verified
+inputs_digest_verified=true
+validator_commit=a936862556f24fde475059c560c1a13f00291457
+validator_tree_sha256=323f47f85dba93a0f96bd3ffd6ec964abe2663e260c988596d7a49a0d68573a8
+remote_schema_files=79
+```
+
+The CI job `validator qualification` concluded **success** in the final
+run `45970216843`. The local reproduction on the workstation reached the
+same authoritative classification and then failed in the harness step
+because the workstation's Nim cache directory is not writable; the CI
+runners have a writable cache and the job succeeded there.
+
+## The secret scan
+
+The scan is the **existing** repository-owned gate, driven by the
+**existing** CI job. It was not modified by this ACT.
+
+```text
+12:05PM INF 50 commits scanned.
+12:05PM INF no leaks found
+gate: PASS secret-scan: no findings
+```
+
+The CI job `secret scan` concluded **success** in the final run
+`45970216843`. The scan covers the whole history, not only the tip.

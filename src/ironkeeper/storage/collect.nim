@@ -29,14 +29,14 @@ from ironkeeper/storage/types import DeviceRecord, Observation, ExecOutcome,
   eoSignalled, osObserved, osUnavailable
 from ironkeeper/storage/procexec import ExecRequest, ExecResult, ExecLimits,
   defaultLimits, runTool
-from ironkeeper/storage.toolpaths import ToolPaths, defaultToolPaths
-from ironkeeper/storage.externaljson import parseExternal, ExtNode, member, ekArray,
+from ironkeeper/storage/toolpaths import ToolPaths, defaultToolPaths
+from ironkeeper/storage/externaljson import parseExternal, ExtNode, member, ekArray,
   ekNumber, ekString
-from ironkeeper/storage.smartfields import readExactField, ExactValue
-from ironkeeper/storage.smartnorm import normalizeSmart
-from ironkeeper/storage.smartstatus import decodeSmartExit, exitBitObservations
-from ironkeeper/storage.scsicap import decodeCapacity, capacityObservations
-from ironkeeper/storage.documents import nowUtc
+from ironkeeper/storage/smartfields import readExactField, ExactValue
+from ironkeeper/storage/smartnorm import normalizeSmart
+from ironkeeper/storage/smartstatus import decodeSmartExit, exitBitObservations
+from ironkeeper/storage/scsicap import decodeCapacity, capacityObservations
+from ironkeeper/storage/documents import nowUtc
 
 type
   ToolExecution* = object

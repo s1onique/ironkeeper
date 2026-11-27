@@ -9,28 +9,28 @@ import std/[os, strutils, json]
 
 import testkit
 
-from ironkeeper/storage.types import DeviceRecord, DeviceClass, Transport,
+from ironkeeper/storage/types import DeviceRecord, DeviceClass, Transport,
   statusName, dcPhysical,
   dcPartition, dcVirtual, trSas, trSata, trNvme, ObservationStatus, osObserved,
   osUnavailable, osDerived, osConflicting, IdentityConfidence, icAuthoritative,
   icAmbiguous, icProbable, ExecOutcome, eoSucceeded, eoNonZeroExit, eoTimedOut,
   eoOutputLimit, eoLaunchFailed
-from ironkeeper/storage.sysfs import discover, DiscoveryRoots, defaultRoots,
+from ironkeeper/storage/sysfs import discover, DiscoveryRoots, defaultRoots,
   SysfsSectorBytes
-from ironkeeper.storage.identity import reconcile, selectDevice, Selector,
+from ironkeeper/storage/identity import reconcile, selectDevice, Selector,
   SelectorKind, skWwn, skSerial, skPath
-from ironkeeper.storage.procexec import runTool, ExecRequest, ExecLimits
-from ironkeeper.storage.externaljson import parseExternal, member, asString,
+from ironkeeper/storage/procexec import runTool, ExecRequest, ExecLimits
+from ironkeeper/storage/externaljson import parseExternal, member, asString,
   exactIntegerText, hexToDecimal, ExtNode
-from ironkeeper.storage.scsicap import mapProtection, decodeCapacity,
+from ironkeeper/storage/scsicap import mapProtection, decodeCapacity,
   protectionTypeName, ptType0, ptType1, ptType2, ptType3, ptReserved
-from ironkeeper.storage.smartstatus import decodeSmartExit, SmartBitFailingStatus
-from ironkeeper.storage.smartnorm import normalizeSmart, detectProtocol, spScsi,
+from ironkeeper/storage/smartstatus import decodeSmartExit, SmartBitFailingStatus
+from ironkeeper/storage/smartnorm import normalizeSmart, detectProtocol, spScsi,
   spAta, spNvme
-from ironkeeper/storage.smartfields import readExactField
-from ironkeeper.storage.documents import inventoryDocument, observationJson
-from ironkeeper.storage.evidence import sha256Hex
-from ironkeeper/util.sha256 import sha256
+from ironkeeper/storage/smartfields import readExactField
+from ironkeeper/storage/documents import inventoryDocument, observationJson
+from ironkeeper/storage/evidence import sha256Hex
+from ironkeeper/util/sha256 import sha256
 
 proc writeFixture(path: string, content: string) =
   ## Write a fixture file.

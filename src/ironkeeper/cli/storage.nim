@@ -18,19 +18,19 @@
 
 import std/[json, strutils, os]
 
-from ironkeeper/storage.types import DeviceRecord, Inventory, Observation,
+from ironkeeper/storage/types import DeviceRecord, Inventory, Observation,
   dcPhysical, osObserved, osDerived, statusName, confidenceName, transportName
-from ironkeeper/storage.sysfs import discover, defaultRoots, DiscoveryRoots
-from ironkeeper.storage.identity import reconcile, selectDevice, Selector,
+from ironkeeper/storage/sysfs import discover, defaultRoots, DiscoveryRoots
+from ironkeeper/storage/identity import reconcile, selectDevice, Selector,
   SelectorKind, skWwn, skSerial, skPath
-from ironkeeper/storage.collect import collectSmart, collectCapacity,
+from ironkeeper/storage/collect import collectSmart, collectCapacity,
   CollectionResult, ToolExecution, identityFingerprint
-import ironkeeper/storage.procexec as procexec
-from ironkeeper/storage.procexec import ExecLimits
-from ironkeeper/storage.toolpaths import defaultToolPaths
-from ironkeeper.storage.documents import inventoryDocument, deviceJson,
+import ironkeeper/storage/procexec as procexec
+from ironkeeper/storage/procexec import ExecLimits
+from ironkeeper/storage/toolpaths import defaultToolPaths
+from ironkeeper/storage/documents import inventoryDocument, deviceJson,
   observationJson, executionJson, nowUtc
-from ironkeeper/storage.evidence import EvidenceArtifact, writeBundle
+from ironkeeper/storage/evidence import EvidenceArtifact, writeBundle
 
 type
   InventoryOptions* = object

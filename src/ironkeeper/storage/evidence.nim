@@ -26,9 +26,9 @@
 
 import std/[os, json, strutils, times]
 
-from ironkeeper/storage.types import DeviceRecord, Observation, ExecOutcome,
+from ironkeeper/storage/types import DeviceRecord, Observation, ExecOutcome,
   confidenceName
-from ironkeeper/storage.documents import nowUtc
+from ironkeeper/storage/documents import nowUtc
 from ironkeeper/util/sha256 import sha256
 
 type

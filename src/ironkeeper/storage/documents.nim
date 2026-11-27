@@ -11,7 +11,7 @@
 
 import std/[json, times]
 
-from ironkeeper/storage.types import DeviceRecord, Inventory, Observation,
+from ironkeeper/storage/types import DeviceRecord, Inventory, Observation,
   ExecOutcome, statusName, confidenceName, outcomeName, identifierKindName,
   identifierNamespaceName, className, transportName
 
