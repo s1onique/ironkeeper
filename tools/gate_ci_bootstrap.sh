@@ -248,12 +248,38 @@ else
 fi
 
 echo
-echo "=== a missing nimble fails the toolchain verification ==="
+echo "=== a missing or unrelated nimble fails the toolchain verification ==="
+# The two negative scenarios are *controlled*: the PATH they use excludes
+# every directory that provides a nimble, so neither scenario depends on
+# whether the host happens to have a nimble installed. The host's own
+# nimble is what made the earlier fixture non-deterministic.
+controlled_path() {
+  local out="" p
+  local old="$IFS"
+  IFS=':'
+  for p in $PATH; do
+    [ -n "$p" ] || continue
+    if [ -x "$p/nimble" ]; then continue; fi
+    out="${out:+$out:}$p"
+  done
+  IFS="$old"
+  printf '%s' "$out"
+}
+CONTROLLED_PATH="$(controlled_path)"
+if [ -z "$CONTROLLED_PATH" ]; then
+  no "the controlled PATH is not empty"
+  CONTROLLED_PATH="$PATH"
+else
+  ok "the controlled PATH carries the utilities but no nimble"
+fi
+
+# (1) Nimble genuinely absent: the synthetic toolchain has no nimble
+#     and the controlled PATH has none either.
 NO_NIMBLE_ROOT="$WORK/runner-temp-nonimble"
 NO_NIMBLE="$NO_NIMBLE_ROOT/nim/nim-${PROD_VERSION}/bin"
 make_toolchain "$NO_NIMBLE" "$PROD_VERSION" no
 set +e
-env -u IRK_NIM_TOOLCHAIN_DIR PATH="$NO_NIMBLE:$PATH" \
+env -u IRK_NIM_TOOLCHAIN_DIR PATH="$NO_NIMBLE:$CONTROLLED_PATH" \
   GITHUB_PATH="$VERIFY_GITHUB_PATH" RUNNER_TEMP="$NO_NIMBLE_ROOT" \
   NIM_VERSION="$PROD_VERSION" \
   "$ROOT/tools/verify_nim_toolchain.sh" > "$WORK/nonimble.out" 2>&1
@@ -266,9 +292,41 @@ else
   cat "$WORK/nonimble.out"
 fi
 if grep -q "nimble is not on PATH" "$WORK/nonimble.out"; then
-  ok "the verification names the missing package manager"
+  ok "the verification names the absent package manager"
 else
-  no "the verification names the missing package manager"
+  no "the verification names the absent package manager"
+  cat "$WORK/nonimble.out"
+fi
+
+# (2) An unrelated nimble is present: a synthetic fallback outside the
+#     intended toolchain. The verifier must refuse it, because the
+#     pinned toolchain and the pinned package manager belong together.
+FALLBACK="$WORK/fallback-toolchain"
+mkdir -p "$FALLBACK"
+cat > "$FALLBACK/nimble" <<'EOF'
+#!/bin/sh
+echo "Nimble Version 0.14.2 [Test: fallback]"
+EOF
+chmod +x "$FALLBACK/nimble"
+set +e
+env -u IRK_NIM_TOOLCHAIN_DIR PATH="$NO_NIMBLE:$FALLBACK:$CONTROLLED_PATH" \
+  GITHUB_PATH="$VERIFY_GITHUB_PATH" RUNNER_TEMP="$NO_NIMBLE_ROOT" \
+  NIM_VERSION="$PROD_VERSION" \
+  "$ROOT/tools/verify_nim_toolchain.sh" > "$WORK/unrelated-nimble.out" 2>&1
+UNRELATED_NIMBLE_STATUS=$?
+set -e
+if [ "$UNRELATED_NIMBLE_STATUS" -ne 0 ]; then
+  ok "an unrelated nimble fails the toolchain verification"
+else
+  no "an unrelated nimble fails the toolchain verification"
+  cat "$WORK/unrelated-nimble.out"
+fi
+if grep -q "nimble does not resolve to the intended toolchain" \
+     "$WORK/unrelated-nimble.out"; then
+  ok "the verification names the unrelated package manager"
+else
+  no "the verification names the unrelated package manager"
+  cat "$WORK/unrelated-nimble.out"
 fi
 
 echo
