@@ -6,7 +6,7 @@ ENTRY_HEAD: fb9c5f6d5ec602b272c108a9d23a7342cbadcd35
 SUBJECT_HEAD: 419eb8ca584c37a47b2e8dc4f72230367cc87143
 CI_HEAD: none — no CI run could be triggered (no GitHub credential in the sandbox)
 CI_RUN_ID: none
-FINAL_HEAD: <the receipt commit; see `git log --oneline -1` on the branch>
+FINAL_HEAD: 9ec3214ca21a0dc36ba54f39c915ae6ddab4dade
 BRANCH: act/ironkeeper-foundation-01-amendment-03
 
 CONFORMANCE_ORACLE_AUTHORITY: >
