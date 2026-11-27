@@ -1,0 +1,114 @@
+ACT_ID: ACT-IRONKEEPER-M0-CI-HANDOFF-01
+ENTRY_HEAD: 9e1d49ce1ac0fdc8d8171ab99f6f23eafa0fcf52
+SUBJECT_HEAD: ea1d5d110e65a21e130daf6d3c9b3c156a986902
+FINAL_HEAD: ea1d5d110e65a21e130daf6d3c9b3c156a986902
+# FINAL_HEAD is the head of the executable subject at the time this
+# receipt was written. The closure documents are added by the commit that
+# carries this file; that commit cannot contain its own hash, so the two
+# identities are recorded separately.
+
+STEP_FILE_LIFECYCLE_RED: |
+  GITHUB_PATH is a per-step environment-command file. The installation
+  step writes to its own file; the runner consumes it and updates the
+  PATH of the following steps; the verification step receives a new,
+  empty file. The predecessor's verifier reconstructed the installation
+  directory from the last entry of the *current* file, so it found
+  nothing and refused the correctly populated PATH.
+  The remote evidence agrees. Runs 45934380741 and 45934374904 both
+  executed 9e1d49ce1ac0fdc8d8171ab99f6f23eafa0fcf52 and both failed at
+  the step "Verify the pinned toolchain": the secret scan succeeded, the
+  native amd64 build and test, the native arm64 build and test and the
+  validator qualification all failed at that step.
+  The defect is reproduced locally by the regression witness: with the
+  predecessor's verifier the witness fails, including the check
+  "the verification step succeeds on the production path" (17 of 23
+  checks pass, 6 fail, exit status 1).
+
+STEP_FILE_LIFECYCLE_GREEN: |
+  The installation directory is derived from the deterministic
+  installation path the bootstrap establishes:
+    intended="${IRK_NIM_TOOLCHAIN_DIR:-}"
+    if [[ -z "$intended" ]]; then
+      : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
+      intended="$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin"
+    fi
+  The bootstrap installs into exactly that path
+  (nim_bin="$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin"), so the two cannot
+  disagree. The verifier still requires both nim and nimble to resolve to
+  that directory and the compiler to report exactly the pinned version.
+  The development override remains available for synthetic testing.
+  The regression witness exercises the production path end to end: a
+  synthetic toolchain under the deterministic installation path, the
+  bootstrap executed in a child process, the installation step's file
+  consumed to establish the effective PATH, a fresh empty file for the
+  verification step, no development override in the verification
+  environment, and the actual production verifier. It passes.
+
+BOOTSTRAP_REGRESSION: |
+  tools/gate_ci_bootstrap.sh: 23 of 23 checks pass.
+    ok   the bootstrap succeeds for the pinned version
+    ok   the bootstrap reports the exact pinned version
+    ok   the installation step appends the toolchain directory to its own file
+    ok   the verification step succeeds on the production path
+    ok   nim resolves to the intended toolchain
+    ok   nimble resolves to the intended toolchain
+    ok   the verification step's file does not carry the installation directory
+    ok   the predecessor's discovery rule finds no installation directory
+    ok   the predecessor's rule would refuse the correctly populated PATH
+    ok   the verifier derives the installation directory from RUNNER_TEMP
+    ok   the verifier does not read the environment-command file
+    ok   an unrelated compiler on PATH is refused
+    ok   a prefix-matching but incorrect version fails the bootstrap
+    ok   the bootstrap names the version mismatch
+    ok   a missing compiler fails the bootstrap
+    ok   the bootstrap names the missing toolchain
+    ok   a missing nimble fails the toolchain verification
+    ok   the verification names the missing package manager
+    ok   no file was created by writing to PATH
+    ok   the bootstrap does not append to PATH with a redirection
+    ok   the workflow calls the shared bootstrap
+    ok   the workflow verifies the toolchain in its own step
+    ok   the workflow does not append to PATH with a redirection
+
+NON_VACUITY: |
+  The predecessor's verifier (the file at the entry commit) was
+  restored over the corrected one and the regression witness was run:
+    witness exit status with the predecessor's verifier: 1
+    passed: 17  failed: 6
+  The failing checks included "the verification step succeeds on the
+  production path", "nim resolves to the intended toolchain" and
+  "nimble resolves to the intended toolchain" - the exact symptom the
+  remote runs show. The corrected verifier was then restored and the
+  witness re-run:
+    witness exit status with the corrected verifier: 0
+    passed: 23  failed: 0
+  The witness therefore detects the defect it exists to detect.
+
+CI_HEAD: NONE - the subject has not been pushed
+CI_RUN_ID: NONE - the subject has not been pushed
+CI_CONCLUSION: NONE - the subject has not been pushed
+LINUX_AMD64_NATIVE: UNMET - the subject has no CI run
+LINUX_ARM64_NATIVE: UNMET - the subject has no CI run
+SECRET_SCAN: UNMET - the subject has no CI run
+AUTHORITATIVE_VALIDATOR_QUALIFICATION: |
+  Not executed for the subject: the subject has not been pushed, and the
+  upstream validator qualification is deliberately not repeated locally
+  in this ACT, because no validator, corpus, schema or runtime
+  application behaviour changes here. The qualification of the entry
+  commit was never reached either: runs 45934380741 and 45934374904
+  failed at the preceding step, "Verify the pinned toolchain". The full
+  native GitHub Actions workflow is the acceptance authority for this
+  step.
+
+TRACKED_DIRT: none
+PATCH_HYGIENE: |
+  Clean. The correction touches two files only:
+    tools/verify_nim_toolchain.sh
+    tools/gate_ci_bootstrap.sh
+  No whitespace errors (git diff --check), no tracked build output, no
+  credentials, no device identifiers. The MIT licence is preserved and
+  unmodified. Shell syntax checks pass for the bootstrap, the verifier
+  and the witness; the workflow file parses.
+HARDWARE_OPERATIONS: none - no device was read, written or probed
+FINAL_VERDICT: PARTIAL_FOUNDATION
+NEXT_RECOMMENDED_ACT: ACT-IRONKEEPER-READONLY-INVENTORY-01

@@ -359,6 +359,28 @@ archive convention is:
   * Qualify less often. The qualification is unconditional today. The
     selective decision may only be given authority again after M1.
 
+### ACT-IRONKEEPER-M0-CI-HANDOFF-01
+
+* **Status:** execution-complete, verdict `PARTIAL_FOUNDATION`
+* **Scope:** Correct the CI toolchain verification. `GITHUB_PATH` is a
+  per-step environment-command file, so the installation directory
+  cannot be reconstructed from it; the verifier now derives the
+  deterministic installation path. Establish the production-path
+  regression witness and prove it non-vacuous.
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-M0-CI-HANDOFF-01/`
+* **Subject:** `ea1d5d110e65a21e130daf6d3c9b3c156a986902`
+* **Remote evidence:** runs 45934380741 and 45934374904 executed the
+  entry commit and failed at the step "Verify the pinned toolchain" in
+  the amd64, arm64 and validator-qualification jobs; the secret scan
+  succeeded.
+* **Open:** the subject has no CI run; one authenticated push preflight
+  was denied. The operator action is
+  `git push origin act/ironkeeper-foundation-01-amendment-03`.
+* **Next:** ACT-IRONKEEPER-READONLY-INVENTORY-01, once the native run of
+  the subject has reached a terminal conclusion with all four jobs
+  successful.
+
 ### ACT-IRONKEEPER-M0-CLOSURE-01-AMENDMENT-01
 
 * **Status:** execution-complete, verdict `PARTIAL_FOUNDATION`
