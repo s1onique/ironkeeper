@@ -18,7 +18,7 @@ storage device.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M0 — Foundations | Architecture, contracts, CLI, tests, CI | **done** (re-established by ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02) |
+| M0 — Foundations | Architecture, contracts, CLI, tests, CI | **acceptance-pending** — the implementation is in place, but M0 is closed only by a `GO_FOUNDATION` verdict from ACT-IRONKEEPER-M0-CLOSURE-01, whose mandatory gates must all be met |
 | M1 — Read-only inventory and SMART observations | Discovery, identity, SMART acquisition | planned |
 | M2 — Operational qualification daemon | Qualification profiles, assessment engine, job engine | planned |
 | M3 — Autonomous housekeeping and observability | Scheduling, metrics, production workloads | planned |
@@ -327,6 +327,105 @@ archive convention is:
 * A superseded ADR is marked `Superseded by ADR-NNNN` at the top of the
   file and keeps its original text. It is never rewritten.
 * History is not removed to reduce the size of the active board.
+
+### ACT-IRONKEEPER-M0-CLOSURE-01
+
+* **Status:** execution-complete, verdict `PARTIAL_FOUNDATION`
+* **Scope:** Close M0. Correct the narrow acceptance defects that
+  independent review identified — the CI toolchain bootstrap, the
+  fail-closed requalification decision, the qualification accounting, the
+  qualification input identity and the output truncation bounds — and
+  qualify the actual subject.
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-M0-CLOSURE-01/`
+* **Subject:** `2c8ef1e2c3108ce4f26821398256d449795b6056`
+  (the executable subject; the closure documents are a later commit and
+  carry their own identity).
+* **Open:** the subject has no native CI run, because the sandbox cannot
+  push to the remote. The operator action is
+  `git push origin act/ironkeeper-foundation-01-amendment-03`.
+* **Next:** ACT-IRONKEEPER-READONLY-INVENTORY-01, once the native run of
+  the subject has reached a terminal conclusion with all four jobs
+  successful.
+* **Follow-ups (nonblocking):**
+  * Inject an *actual* failing `git diff` into the selective
+    requalification decision. The decision is fail-closed today, but the
+    failing-diff path is currently exercised through a broken repository
+    rather than through a diff that fails on its own.
+  * Make the UTF-8 handling of arbitrary object keys collision-safe
+    before any external telemetry ingestion. The repair of invalid bytes
+    is explicit today; two distinct keys that repair to the same text
+    are not yet distinguished.
+  * Qualify less often. The qualification is unconditional today. The
+    selective decision may only be given authority again after M1.
+
+### ACT-IRONKEEPER-M0-CI-HANDOFF-01
+
+* **Status:** execution-complete, verdict `PARTIAL_FOUNDATION`
+* **Scope:** Correct the CI toolchain verification. `GITHUB_PATH` is a
+  per-step environment-command file, so the installation directory
+  cannot be reconstructed from it; the verifier now derives the
+  deterministic installation path. Establish the production-path
+  regression witness and prove it non-vacuous.
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-M0-CI-HANDOFF-01/`
+* **Subject:** `3ad85446cd9561e9d9c5e16deb817aabb855dd6d`
+  (the executable subject; the closure documents are a later commit and
+  carry their own identity)
+* **Remote evidence:** runs 45934380741 and 45934374904 executed the
+  entry commit and failed at the step "Verify the pinned toolchain" in
+  the amd64, arm64 and validator-qualification jobs; the secret scan
+  succeeded. Run 45934831421 executed the corrected verifier: the
+  production toolchain verification, the secret scan and the
+  authoritative native validator qualification all passed, and only the
+  regression fixture failed - which this ACT corrects.
+* **Open:** the subject has no CI run; one authenticated push preflight
+  was denied. The operator action is
+  `git push origin act/ironkeeper-foundation-01-amendment-03`.
+* **Next:** ACT-IRONKEEPER-READONLY-INVENTORY-01, once the native run of
+  the subject has reached a terminal conclusion with all four jobs
+  successful.
+
+### ACT-IRONKEEPER-M0-CLOSURE-01-AMENDMENT-01
+
+* **Status:** execution-complete, verdict `PARTIAL_FOUNDATION`
+* **Scope:** Correct the three remaining closure defects: the CI
+  toolchain bootstrap seam, the caller-controlled qualification
+  authority and the report semantic rule for a truncated findings
+  collection. Publish the observed optional-corpus results.
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-M0-CLOSURE-01-AMENDMENT-01/`
+* **Subject:** `f1b9ca0f4f690b9ad053d928aafba82d6ab1c5c3`
+* **Open:** the subject has no native CI run. One bounded authentication
+  preflight was performed and denied; the operator action is
+  `git push origin act/ironkeeper-foundation-01-amendment-03`.
+* **Next:** ACT-IRONKEEPER-READONLY-INVENTORY-01, once the native run of
+  the subject has reached a terminal conclusion with all four jobs
+  successful.
+
+### ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-03
+
+* **Status:** execution-complete, qualification-partial
+* **Note:** the predecessor could not authenticate to GitHub from its
+  sandbox, so it could not observe a CI run. That observation is
+  **historical**: subsequent remote CI runs `45926174624` and
+  `45926147466` executed the same commit `c3c4b588` and reached terminal
+  conclusions, with the native amd64 and arm64 build-and-test jobs and
+  the secret-scan gate successful. The predecessor's own receipts are
+  retained unchanged; the remote runs are recorded by the closure ACT.
+* **Scope:** Restore the remaining acceptance authority and close M0:
+  the validator conformance oracle, the secret-scan report authority,
+  the public output contracts, the bounded ingestion, the supported
+  reference policy and the qualification workspace ownership.
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-03/`
+* **Supersedes:** the conformance counts of
+  ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02. Its harness loaded the
+  expected verdict and never compared it with the observed one, so its
+  counts measured activity rather than conformance. The historical
+  observation is retained; it is not evidence of conformance.
+* **Next:** ACT-IRONKEEPER-M0-CLOSURE-01 (mandatory gates), and then
+  ACT-IRONKEEPER-READONLY-INVENTORY-01.
 
 ### ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-02
 

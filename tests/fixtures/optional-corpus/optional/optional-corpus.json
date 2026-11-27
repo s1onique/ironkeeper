@@ -1,0 +1,16 @@
+[
+  {
+    "description": "an optional case",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "integer"
+    },
+    "tests": [
+      {
+        "description": "an integer is valid",
+        "data": 1,
+        "valid": true
+      }
+    ]
+  }
+]

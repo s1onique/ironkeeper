@@ -6,6 +6,13 @@
 # Generated validation output from the CI cross-check
 /out/
 
+# Gate logs produced by the repository-owned gate scripts
+/gate-logs/
+
+# The qualification authority record, produced by tools/qualify_validator.sh
+/qualification-authority.txt
+/qualification-output.txt
+
 # Nimble
 /nimble.paths
 /nimblecache/

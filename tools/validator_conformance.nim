@@ -7,23 +7,24 @@
 ##
 ## ## What it measures, and what it does not
 ##
-## Three different things are measured, and they are reported separately:
+## Two different things are measured, and they are reported separately:
 ##
 ##   1. **Upstream raw-validator conformance.** The validator library is
 ##      driven directly, with no Ironkeeper policy in the way. This
-##      measures the *library*, not Ironkeeper.
-##   2. **Ironkeeper adapter conformance.** The same test cases are driven
+##      measures the *library*.
+##   2. **Ironkeeper adapter conformance.** The same cases are driven
 ##      through the Ironkeeper adapter, which adds the supported schema
 ##      policy, the reference policy and the meta-validation gate. A case
-##      that the raw validator accepts but the adapter rejects is not a
-##      defect: it is the adapter's supported subset being narrower.
-##   3. **Ironkeeper contract policy.** The cases the adapter rejects
-##      *because of the supported schema policy* are reported as such.
+##      that lies outside the documented supported subset is excluded, with
+##      its reason recorded. A case inside the subset that the adapter
+##      answers wrongly is a failure.
 ##
-## A case that the adapter rejects for a reason that is neither the
-## upstream defect nor the supported policy is an **unexplained** result,
-## and it is counted and reported separately. Unexplained results are
-## failures of the qualification.
+## ## The oracle
+##
+## A case passes only when the observed verdict *equals* the expected
+## verdict. The harness never counts "the validator returned something" as
+## a pass. A validator that accepts everything scores exactly as badly as
+## one that rejects everything.
 ##
 ## ## The pinned inputs
 ##
@@ -35,6 +36,9 @@
 ## | Mandatory corpus | every file directly under `tests/draft2020-12/` |
 ## | Optional corpus | every file under `tests/draft2020-12/optional/`, classified individually |
 ##
+## The optional membership of a case is derived from the corpus structure,
+## not from a hand-maintained list of file names.
+##
 ## ## Usage
 ##
 ## ```sh
@@ -45,12 +49,17 @@
 ## harness verifies the revision and refuses to run against a different
 ## one, so that a result always identifies its input.
 
-import std/[json, os, strutils, algorithm]
+import std/[os, tables, algorithm]
 
-import jschema
-
-from ironkeeper/contracts/validator import newValidator, validateAgainst
-from ironkeeper/contracts/schemapolicy import checkSchemaPolicy
+from ironkeeper/qualification/corpus import readCorpus, Corpus, CorpusCase
+from ironkeeper/qualification/harness import runCorpus, QualificationReport,
+  Exclusion, failures, unauthorisedExclusions, invalidEvidence,
+  renderSummary, productVerdict, Scope, scUpstream, scAdapter,
+  upstreamLimitations, mandatoryResults, optionalResults, optionalCounts
+from ironkeeper/qualification/providers import newRawRegistry, rawProvider,
+  adapterProvider, subsetJudge, RemoteBaseUri
+from ironkeeper/qualification/remotes import readRemoteSchemas
+from ironkeeper/qualification/verdict import QualificationVerdict
 
 const
   SuiteRevision* = "245a45abc90190c0bff04d97e6d2b541b4bb9f12"
@@ -59,129 +68,6 @@ const
     ## carries the per-draft corpus under `tests/draft2020-12/`.
 
   DraftDir = "tests/draft2020-12"
-
-  # The optional directories that the specification marks as optional.
-  # Every failure in these directories is a known, recorded limitation.
-  KnownOptionalDirs = [
-    "optional/format",
-    "optional/format-assertion",
-    "optional/format-assertion.json",
-    "optional/bignum.json",
-    "optional/ecmascript-regex.json",
-    "optional/float-overflow.json",
-    "optional/dependencies-compatibility.json",
-    "optional/cross-draft.json",
-  ]
-
-type
-  CaseKind = enum
-    ckPass       ## The validator accepted and the test expected acceptance.
-    ckFail       ## The validator rejected and the test expected rejection.
-    ckWrong      ## The validator's answer differed from the expected one.
-    ckError      ## The validator raised an exception instead of answering.
-
-  Outcome = object
-    kind*: CaseKind
-    policyRejected*: bool
-      ## True when the Ironkeeper adapter rejected the case because of the
-      ## supported schema policy, rather than because of the data.
-    errorMessage*: string
-
-proc classify(kind: CaseKind, policyRejected = false,
-              errorMessage = ""): Outcome =
-  ## Build an outcome record.
-  Outcome(kind: kind, policyRejected: policyRejected, errorMessage: errorMessage)
-
-proc outcomeOf(valid: bool): Outcome =
-  ## The outcome of a validator that answered with a verdict.
-  if valid: classify(ckPass) else: classify(ckFail)
-
-proc outcomeOfError(msg: string): Outcome =
-  classify(ckError, false, msg)
-
-# The test-suite files are arrays of groups; each group has a `schema` and
-# a list of `tests`, each with a `description`, a `data` and an expected
-# `valid`.
-type
-  TestCase = object
-    group: string
-    description: string
-    schema: JsonNode
-    data: JsonNode
-    expectedValid: bool
-
-proc loadSuiteFile(path: string): seq[TestCase] =
-  ## Load every test case from one test-suite file.
-  result = @[]
-  let text = readFile(path)
-  var root: JsonNode
-  try:
-    root = parseJson(text)
-  except JsonParsingError as e:
-    stderr.writeLine("cannot parse " & path & ": " & e.msg)
-    return result
-  if root.kind != JArray:
-    return result
-  for group in root.elems:
-    if group.kind != JObject or not group.hasKey("schema"):
-      continue
-    let schema = group["schema"]
-    let groupDesc = if group.hasKey("description"):
-                       group["description"].getStr
-                     else: path
-    if not group.hasKey("tests") or group["tests"].kind != JArray:
-      continue
-    for tc in group["tests"].elems:
-      if tc.kind != JObject:
-        continue
-      result.add TestCase(
-        group: groupDesc,
-        description: if tc.hasKey("description"): tc["description"].getStr
-                     else: "",
-        schema: schema,
-        data: tc["data"],
-        expectedValid: tc["valid"].getBool)
-
-proc isKnownOptional(relativePath: string): bool =
-  ## True when the file is in a directory the specification marks optional.
-  for known in KnownOptionalDirs:
-    if relativePath == known or relativePath.startsWith(known & "/"):
-      return true
-  false
-
-proc runSuite(path: string, raw: bool): seq[tuple[testCase: TestCase, outcome: Outcome]] =
-  ## Run every test case in one file.
-  result = @[]
-  for tc in loadSuiteFile(path):
-    var outcome: Outcome
-    if raw:
-      # The upstream library, driven directly. No Ironkeeper policy.
-      var registry = newSchemaRegistry()
-      try:
-        let res = validate(tc.data, tc.schema, registry)
-        outcome = outcomeOf(res.valid)
-      except CatchableError as e:
-        outcome = outcomeOfError(e.msg)
-      except Exception as e:
-        outcome = outcomeOfError(e.msg)
-    else:
-      # The Ironkeeper adapter, with the supported schema policy, the
-      # reference policy and the meta-validation gate.
-      let v = newValidator()
-      try:
-        let res = v.validateAgainst(tc.data, tc.schema)
-        if res.error != nil:
-          # The adapter refused the *schema*. That is the supported
-          # policy at work, and it is reported as such.
-          let policy = checkSchemaPolicy(tc.schema)
-          outcome = classify(ckFail, policy.ok == false, res.error.msg)
-        else:
-          outcome = outcomeOf(res.ok)
-      except CatchableError as e:
-        outcome = outcomeOfError(e.msg)
-      except Exception as e:
-        outcome = outcomeOfError(e.msg)
-    result.add (tc, outcome)
 
 proc optionValue(name: string, default = ""): string =
   ## The value of the `--name value` option, or `default`.
@@ -192,6 +78,38 @@ proc optionValue(name: string, default = ""): string =
       return params[i + 1]
     inc i
   default
+
+proc renderReport(report: QualificationReport, label: string) =
+  ## Render one report.
+  echo "[" & label & "]"
+  echo "  denominator=", report.denominator
+  echo "  passed=", report.passed
+  echo "  failed=", failures(report).len
+  echo "  unauthorised_exclusions=", unauthorisedExclusions(report).len
+  echo "  invalid_evidence=", invalidEvidence(report).len
+  for line in renderSummary(report):
+    echo "  ", line
+  for f in failures(report):
+    echo "  failure: ", f.identity,
+         " expected_valid=", f.expectedValid,
+         " observed=", f.observed
+  for u in unauthorisedExclusions(report):
+    echo "  unauthorised_exclusion: ", u.identity, " reason=", u.exclusionReason
+  for e in invalidEvidence(report):
+    echo "  invalid_evidence: ", e.identity, " reason=", e.exclusionReason
+  for l in upstreamLimitations(report):
+    echo "  upstream_limitation: ", l.identity,
+         " expected_valid=", l.expectedValid,
+         " observed=", l.observed,
+         " note=", l.observedNote
+  echo "  exclusions=", report.exclusions.len
+  var reasons: seq[string] = @[]
+  for reason in report.exclusionCounts.keys:
+    reasons.add reason
+  reasons.sort()
+  for reason in reasons:
+    echo "  exclusion_reason: count=", report.exclusionCounts[reason],
+         " reason=", reason
 
 proc main() =
   let suiteDir = optionValue("--suite")
@@ -205,70 +123,114 @@ proc main() =
     stderr.writeLine("the suite does not contain " & draft)
     quit(2)
 
-  var files: seq[string] = @[]
-  # The corpus is recursive: the optional corpus lives in subdirectories.
-  for path in walkDirRec(draftPath):
-    if path.endsWith(".json"):
-      files.add path
-  files.sort()
-
-  var mandatoryTotal = 0
-  var mandatoryPassed = 0
-  var mandatoryFailed = 0
-  var optionalTotal = 0
-  var optionalPassed = 0
-  var optionalFailed = 0
-  var policyRejected = 0
-  var unexplained: seq[string] = @[]
-  var optionalFailures: seq[string] = @[]
-
-  for path in files:
-    let relative = path.replace(draftPath & "/", "")
-    let optional = isKnownOptional(relative)
-    for (tc, outcome) in runSuite(path, true):
-      if optional:
-        inc optionalTotal
-        if outcome.kind == ckPass or outcome.kind == ckFail:
-          inc optionalPassed
-        else:
-          inc optionalFailed
-          optionalFailures.add relative & " / " & tc.description &
-            " -> " & $outcome.kind
-      else:
-        inc mandatoryTotal
-        if outcome.kind == ckPass or outcome.kind == ckFail:
-          inc mandatoryPassed
-        else:
-          inc mandatoryFailed
-          unexplained.add "raw: " & relative & " / " & tc.description &
-            " -> " & $outcome.kind
-
-    # The adapter, with Ironkeeper's policy.
-    for (tc, outcome) in runSuite(path, false):
-      if outcome.policyRejected:
-        inc policyRejected
-      elif outcome.kind == ckError:
-        unexplained.add "adapter: " & relative & " / " & tc.description &
-          " -> " & outcome.errorMessage
+  # ---- the corpus ---------------------------------------------------------
+  # The corpus is read through the repository-owned reader, which refuses
+  # a malformed file rather than skipping it, and which computes a digest
+  # over the files it actually read.
+  let corpus = readCorpus(draftPath)
+  if corpus.problems.len > 0:
+    echo "corpus_problems=", corpus.problems.len
+    for p in corpus.problems:
+      echo "  corpus_problem: ", p.file, ": ", p.message
+    quit(1)
+  if corpus.cases.len == 0:
+    echo "the corpus is empty; refusing to qualify against it"
+    quit(1)
 
   echo "suite_revision=", SuiteRevision
   echo "draft=2020-12"
-  echo "mandatory_total=", mandatoryTotal
-  echo "mandatory_passed=", mandatoryPassed
-  echo "mandatory_failed=", mandatoryFailed
-  echo "optional_total=", optionalTotal
-  echo "optional_passed=", optionalPassed
-  echo "optional_failed=", optionalFailed
-  for f in optionalFailures:
-    echo "  optional_failure: ", f
-  echo "adapter_policy_rejected=", policyRejected
-  echo "unexplained=", unexplained.len
-  for u in unexplained:
-    echo "  unexplained: ", u
+  echo "corpus_files=", corpus.fileCount
+  echo "corpus_cases=", corpus.cases.len
+  echo "corpus_digest_fnv1a64=", corpus.digest
 
-  # The mandatory corpus must pass completely. A failure here is a
-  # failure of the qualification.
-  if mandatoryFailed > 0:
+  var mandatoryTotal = 0
+  var optionalTotal = 0
+  for c in corpus.cases:
+    if c.optional:
+      inc optionalTotal
+    else:
+      inc mandatoryTotal
+  echo "mandatory_cases=", mandatoryTotal
+  echo "optional_cases=", optionalTotal
+  echo "corpus_representation_limited=",
+       (block:
+         var n = 0
+         for c in corpus.cases:
+           if c.representationLimited:
+             inc n
+         n)
+
+  # ---- the remote schemas --------------------------------------------------
+  # The remote tree is part of the measured input. A remote schema that
+  # cannot be read is a problem, not a file to be passed over: the
+  # qualification refuses to run against a corpus whose references it
+  # could not resolve.
+  let remote = readRemoteSchemas(suiteDir / "remotes", RemoteBaseUri)
+  echo "remote_files=", remote.fileCount
+  echo "remote_digest_fnv1a64=", remote.digest
+  if remote.problems.len > 0:
+    echo "remote_problems=", remote.problems.len
+    for p in remote.problems:
+      echo "  remote_problem: ", p.file, ": ", p.message
+    quit(1)
+
+  # ---- the raw upstream validator -----------------------------------------
+  let rawRegistry = newRawRegistry(suiteDir)
+  if rawRegistry.problems.len > 0:
+    echo "remote_problems=", rawRegistry.problems.len
+    for p in rawRegistry.problems:
+      echo "  remote_problem: ", p
+    quit(1)
+  let rawReport = runCorpus(corpus, rawProvider(rawRegistry.registry),
+                             subsetJudge(), scUpstream)
+  renderReport(rawReport, "raw-upstream")
+
+  # ---- the Ironkeeper adapter ---------------------------------------------
+  let adapterReport = runCorpus(corpus, adapterProvider(), subsetJudge(),
+                                scAdapter)
+  renderReport(adapterReport, "ironkeeper-adapter")
+
+  # ---- the verdict ---------------------------------------------------------
+  # The qualification fails when either measurement fails. An unexplained
+  # result is never tolerated.
+  # The qualification fails when the *product* qualification fails. The
+  # raw measurement is a measurement of the upstream library: a wrong
+  # answer there is a raw failure, and it is reported as such. It is
+  # accepted for the product only when it lies outside the required
+  # subset and an authorised limitation entry covers it.
+  let rawVerdict = rawReport.verdict
+  let adapterVerdict = adapterReport.verdict
+  let productResult = productVerdict(rawReport, adapterReport)
+  echo "raw_verdict=", (if rawVerdict == qvPass: "PASS" else: "FAIL")
+  echo "adapter_verdict=", (if adapterVerdict == qvPass: "PASS" else: "FAIL")
+  echo "product_verdict=", (if productResult == qvPass: "PASS" else: "FAIL")
+  echo "raw_accepted_limitations=", rawReport.acceptedLimitations.len
+  for identity in rawReport.acceptedLimitations:
+    echo "  accepted_limitation: ", identity
+  # The per-class counts of the mandatory corpus, for the receipt.
+  echo "raw_mandatory_cases=", mandatoryResults(rawReport).len
+  echo "raw_optional_cases=", optionalResults(rawReport).len
+  echo "adapter_mandatory_cases=", mandatoryResults(adapterReport).len
+  echo "adapter_optional_cases=", optionalResults(adapterReport).len
+  # The optional corpus was observed, and its observed results are
+  # reported separately from the mandatory ones. An optional case is
+  # never counted as a measured success it did not achieve.
+  let rawOptional = optionalCounts(rawReport)
+  let adapterOptional = optionalCounts(adapterReport)
+  echo "raw_optional_observed_total=", rawOptional.total
+  echo "raw_optional_observed_passed=", rawOptional.passed
+  echo "raw_optional_observed_failed=", rawOptional.failed
+  echo "raw_optional_observed_excluded=", rawOptional.total -
+       rawOptional.passed - rawOptional.failed
+  echo "adapter_optional_observed_total=", adapterOptional.total
+  echo "adapter_optional_observed_passed=", adapterOptional.passed
+  echo "adapter_optional_observed_failed=", adapterOptional.failed
+  echo "adapter_optional_observed_excluded=", adapterOptional.total -
+       adapterOptional.passed - adapterOptional.failed
+  if (invalidEvidence(rawReport).len > 0) or
+     (invalidEvidence(adapterReport).len > 0):
+    quit(1)
+  if productResult != qvPass:
     quit(1)
   quit(0)
 

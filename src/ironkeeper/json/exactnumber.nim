@@ -7,8 +7,11 @@
 ##
 ## ## The problem with a binary64 intermediate
 ##
-## JSON Schema numeric semantics are defined over IEEE-754 binary64, but
-## binary64 cannot represent every decimal exactly:
+## Ironkeeper's own numeric model is IEEE-754 binary64. JSON Schema
+## itself does not define a universal numeric model: its keywords are
+## written over mathematical numbers. The restriction below is therefore
+## an Ironkeeper implementation restriction, and binary64 cannot
+## represent every decimal exactly:
 ##
 ##   * `9007199254740993` (2^53 + 1) rounds to `9007199254740992`;
 ##   * `1.00000000000000001` rounds to `1.0`;

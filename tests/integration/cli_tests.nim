@@ -283,6 +283,50 @@ proc runSuite*(): int =
   t.check("report validate reports it as a semantic failure", r.exitCode == 6)
   t.checkContains("the reason is named", r.stdoutText, "PASS assessment")
 
+  # A truncated findings collection cannot claim PASS.
+  #
+  # The document is structurally valid: the truncation marker is an
+  # ordinary finding. The *semantic* layer is what rejects the claim,
+  # because the report does not know which findings it dropped.
+  proc writeTruncatedReport(name, verdict: string): string =
+    ## Write a structurally valid report whose findings were truncated.
+    let path = semTmp / name
+    var text = "{\n"
+    text.add "  \"schema_version\": 1,\n"
+    text.add "  \"report_type\": \"configuration_validation\",\n"
+    text.add "  \"report_id\": {\"id\": \"r1\", " &
+      "\"created_at\": \"2026-01-02T03:04:05Z\"},\n"
+    text.add "  \"producer\": {\"name\": \"ironkeeper\", \"version\": \"0.1.0\"},\n"
+    text.add "  \"execution\": {\"state\": \"SUCCEEDED\", " &
+      "\"started_at\": \"2026-01-02T03:04:05Z\", " &
+      "\"finished_at\": \"2026-01-02T03:04:05Z\"},\n"
+    text.add "  \"assessment\": {\"verdict\": \"" & verdict &
+      "\", \"summary\": \"checked\"},\n"
+    text.add "  \"findings\": [\n"
+    text.add "    {\"code\": \"config.schema_violation\", " &
+      "\"severity\": \"error\", \"message\": \"a violation\"},\n"
+    text.add "    {\"code\": \"findings.truncated\", " &
+      "\"severity\": \"warning\", " &
+      "\"message\": \"the findings collection was truncated: 2 " &
+      "finding(s) were dropped\"}\n"
+    text.add "  ]\n}\n"
+    writeFile(path, text)
+    path
+
+  let truncatedPass = writeTruncatedReport("truncated-pass.json", "PASS")
+  r = runBinary(@["report", "validate", "--file", truncatedPass, "--json"])
+  t.check("report validate rejects a PASS verdict on a truncated collection",
+    r.exitCode != 0)
+  t.check("report validate reports it as a semantic failure", r.exitCode == 6)
+  t.checkContains("the reason is named", r.stdoutText,
+    "truncated")
+
+  let truncatedWarn = writeTruncatedReport("truncated-warn.json", "WARN")
+  r = runBinary(@["report", "validate", "--file", truncatedWarn, "--json"])
+  t.check("report validate accepts a non-PASS verdict on a truncated collection",
+    r.exitCode == 0)
+  t.checkContains("the document is reported as valid", r.stdoutText, "\"valid\": true")
+
   # An unsupported schema version has its own documented classification.
   let versionPath = semTmp / "bad-version.json"
   writeFile(versionPath, """{"schema_version": 99}""")
@@ -313,6 +357,123 @@ proc runSuite*(): int =
   r = runBinary(@["config", "validate", "--file", semTmp, "--json"])
   t.checkEq("a directory exits with the input-unavailable status",
     r.exitCode, 3)
+
+  # --- Public output contracts ------------------------------------------------
+  # Every machine-readable result must be exactly one JSON document that
+  # satisfies its authoritative contract, and it must stay within the
+  # contract's limits.
+  let outTmp = getTempDir() / "ironkeeper-output-contracts"
+  createDir(outTmp)
+  defer: removeDir(outTmp)
+
+  # (1) An oversized numeric lexeme in a parser diagnostic. The strict
+  # reader names the lexeme in its message, so a long lexeme produces a
+  # long diagnostic. The diagnostic must be bounded by the error
+  # contract, and the exit status must still be the syntax status.
+  let longLexeme = "1" & ("0".repeat(8000)) & ".5"
+  let lexemePath = outTmp / "long-lexeme.json"
+  writeFile(lexemePath, "{\"a\": " & longLexeme & "}")
+  r = runBinary(@["config", "validate", "--file", lexemePath, "--json"])
+  t.checkEq("an oversized numeric lexeme exits with the syntax status",
+            r.exitCode, 4)
+  var lexemeDoc: JsonNode
+  var parsedLexeme = false
+  try:
+    lexemeDoc = parseJson(r.stdoutText)
+    parsedLexeme = true
+  except JsonParsingError:
+    parsedLexeme = false
+  t.check("an oversized numeric lexeme still emits one JSON document",
+          parsedLexeme)
+  if parsedLexeme:
+    t.checkEq("the oversized lexeme is classified as a syntax failure",
+              lexemeDoc["error"]["code"].getStr, "invalid_json_syntax")
+    t.check("the oversized diagnostic is bounded by the contract",
+            lexemeDoc["error"]["message"].getStr.len <= 4096)
+
+  # (2) An oversized validation location. The location is a JSON Pointer
+  # into the document, so a long member name makes it long. It is
+  # bounded by the location limit, and the truncation is explicit.
+  let longNamePath = outTmp / "long-name.json"
+  writeFile(longNamePath, "{" & "\"" & "x".repeat(1100) & "\": \"v\"}")
+  r = runBinary(@["report", "validate", "--file", longNamePath, "--json"])
+  var longNameResult: JsonNode
+  var parsedLongName = false
+  try:
+    longNameResult = parseJson(r.stdoutText)
+    parsedLongName = true
+  except JsonParsingError:
+    parsedLongName = false
+  t.check("an oversized validation location still emits one JSON document",
+          parsedLongName)
+  if parsedLongName:
+    let location = longNameResult["issues"][0]["location"].getStr
+    t.check("the oversized location is bounded by the contract",
+            location.len <= 1024)
+    t.check("the oversized location is marked as truncated",
+            location.endsWith("[truncated]"))
+
+  # (3) More validation issues than the output schema allows. The issue
+  # collection is bounded, and the truncation is explicit.
+  let manyPath = outTmp / "many-issues.json"
+  var manyDoc = newJObject()
+  for i in 0 ..< 1200:
+    manyDoc["p" & $i] = newJString("not an object")
+  writeFile(manyPath, $manyDoc)
+  r = runBinary(@["report", "validate", "--file", manyPath, "--json"])
+  var manyResult: JsonNode
+  var parsedMany = false
+  try:
+    manyResult = parseJson(r.stdoutText)
+    parsedMany = true
+  except JsonParsingError:
+    parsedMany = false
+  t.check("a large issue collection still emits one JSON document",
+          parsedMany)
+  if parsedMany:
+    t.check("the issue collection is bounded by the contract",
+            manyResult["issues"].len <= 1024)
+    t.check("the truncation is explicit",
+            manyResult["issues"][^1]["code"].getStr == "issues.truncated")
+    t.check("the truncated result is not a success",
+            not manyResult["valid"].getBool)
+
+  # (4) An unsupported schema version has its own classification.
+  let unsupportedPath = outTmp / "unsupported.json"
+  writeFile(unsupportedPath, """{"schema_version": 42, "report_type": "configuration_validation"}""")
+  r = runBinary(@["report", "validate", "--file", unsupportedPath, "--json"])
+  t.checkEq("an unsupported schema version exits with its own status",
+            r.exitCode, 7)
+
+  # (5) An ordinary invalid configuration document produces a report that
+  # satisfies the report contract.
+  let invalidConfig = outTmp / "invalid-config.json"
+  writeFile(invalidConfig, """
+{
+  "schema_version": 1,
+  "safety": {
+    "require_explicit_enrollment": false,
+    "allow_destructive_operations": true,
+    "allow_tests_on_use_devices": false
+  }
+}
+""")
+  r = runBinary(@["config", "validate", "--file", invalidConfig, "--json"])
+  t.check("an invalid configuration exits nonzero", r.exitCode != 0)
+  var invalidReport: JsonNode
+  var parsedInvalid = false
+  try:
+    invalidReport = parseJson(r.stdoutText)
+    parsedInvalid = true
+  except JsonParsingError:
+    parsedInvalid = false
+  t.check("an invalid configuration still emits one JSON document",
+          parsedInvalid)
+  if parsedInvalid:
+    t.check("the invalid configuration produces a report",
+            invalidReport["report_type"].getStr == "configuration_validation")
+    t.check("the invalid configuration is not a PASS",
+            invalidReport["assessment"]["verdict"].getStr != "PASS")
 
   # --- No unexpected files are created ---------------------------------------
   var before: seq[string]

@@ -79,7 +79,11 @@ proc runSuite*(): int =
   let extOutcome = v.validateAgainst(parseJson("{}"), external)
   t.check("rejects an external reference", not extOutcome.ok)
   t.checkContains("explains why",
-    extOutcome.error.msg, "external schema reference is not permitted")
+    extOutcome.error.msg, "the external reference")
+  t.checkContains("names the reference",
+    extOutcome.error.msg, "https://example.invalid/other.json")
+  t.checkEq("the refusal is classified as a reference-policy failure",
+            extOutcome.failure, vfkReferencePolicy)
 
   # A local reference is allowed.
   let local = parseJson("""{"$defs":{"s":{"type":"string"}},"$ref":"#/$defs/s"}""")

@@ -22,7 +22,12 @@ from ironkeeper/contracts/report import Report, ReportType, newReport, toJson, e
 from ironkeeper/contracts/schemaregistry import EmbeddedSchemaNames, schemaText
 from ironkeeper/contracts/validator import newValidator, validateAgainst, SchemaIssue
 from ironkeeper/contracts/reportsemantics import validateReportSemantics
+from ironkeeper/contracts/outputbounds import boundMessage, boundLocation,
+  MaxIssueCount
+from ironkeeper/contracts/utf8 import sanitizeJson
 from ironkeeper/json/strictjson import parseStrict, StrictJsonResult, MaxDocumentBytes
+from ironkeeper/json/boundedread import openDocument, closeDocument, readDocument,
+  ofNotRegularFile, rfTooLarge
 from ironkeeper/config/semantics import validateConfigSemantics
 import ironkeeper/cli/args as argmod
 
@@ -102,7 +107,11 @@ proc writeOut(ctx: var CliContext, text: string) =
 
 proc emitJson(ctx: var CliContext, node: JsonNode) =
   ## Write a machine-readable document to stdout.
-  ctx.stdoutBuf.add node.pretty(2)
+  ##
+  ## The document is sanitised before it is written: every string in it is
+  ## repaired to valid UTF-8, so that the emitted document is always
+  ## readable by a conforming JSON consumer, whatever the input carried.
+  ctx.stdoutBuf.add sanitizeJson(node).pretty(2)
   ctx.stdoutBuf.add "\n"
   ctx.producedResult = true
 
@@ -160,11 +169,19 @@ proc cmdSchema(ctx: var CliContext, args: argmod.ParsedArgs) =
 proc readDocument(path: string): tuple[node: JsonNode, text: string] =
   ## Read and strictly ingest a JSON document from `path`.
   ##
-  ## The input is read through a **bounded** reader: the byte limit is
-  ## enforced *before* an unbounded amount of input is consumed, so a
-  ## large or endless source cannot exhaust memory. The opened input is
-  ## also checked to be a regular file, so a FIFO or a device node cannot
-  ## block the command.
+  ## The input is read through a **bounded**, **descriptor-based** reader:
+  ##
+  ##   * the byte limit is enforced *before* an unbounded amount of input
+  ##     is consumed, so a large or endless source cannot exhaust memory;
+  ##   * the file is opened with `O_RDONLY | O_NONBLOCK | O_CLOEXEC`, so
+  ##     the open itself cannot block on a FIFO and the descriptor cannot
+  ##     leak into a child process;
+  ##   * the regularity of the input is decided by `fstat` on the
+  ##     **opened descriptor**, not by a `stat` on the path. A pathname
+  ##     pre-check would not be sufficient: the file can be replaced
+  ##     between the check and the open.
+  ##
+  ## The descriptor is closed on every exit path.
   if path.len == 0:
     raise newIrkError(EInputUnavailable, "no file path was given")
   if not fileExists(path):
@@ -172,52 +189,29 @@ proc readDocument(path: string): tuple[node: JsonNode, text: string] =
   if dirExists(path):
     raise newIrkError(EInputUnavailable, "not a regular file: " & path)
 
-  var f: File
-  try:
-    if not open(f, path, fmRead):
-      raise newIrkError(EInputUnavailable, "cannot open " & path)
-  except IOError as e:
-    raise newIrkError(EInputUnavailable, "cannot open " & path & ": " & e.msg)
-
-  # The opened handle must refer to a regular file. A FIFO, a device node
-  # or a socket would block or produce an unbounded stream.
-  #
-  # The check is made on the *opened* input, not on a pre-open observation
-  # of the path, so that a path that is replaced between the two checks
-  # cannot slip through.
-  try:
-    let info = getFileInfo(f)
-    if info.kind != pcFile:
-      close(f)
+  let opened = openDocument(path)
+  if not opened.ok:
+    if opened.failure == ofNotRegularFile:
       raise newIrkError(EInputUnavailable,
         "not a regular file: " & path)
-  except IOError as e:
-    close(f)
     raise newIrkError(EInputUnavailable,
-      "cannot inspect " & path & ": " & e.msg)
+      "cannot open " & path & ": " & opened.message)
 
-  # Read at most the limit plus one byte. The extra byte is the overflow
-  # discriminator: if it is present, the document exceeds the limit.
-  let limit = MaxDocumentBytes
-  var buffer = newString(limit + 1)
-  var total = 0
-  try:
-    while total < buffer.len:
-      let read = f.readBuffer(addr buffer[total], buffer.len - total)
-      if read <= 0:
-        break
-      total += read
-  except IOError as e:
-    close(f)
+  # The descriptor is owned by this scope from here on, and it is closed
+  # on every exit path.
+  var read = readDocument(opened.descriptor, MaxDocumentBytes)
+  closeDocument(opened.descriptor)
+
+  if not read.ok:
+    if read.failure == rfTooLarge:
+      raise newIrkError(EInputUnavailable,
+        "the document exceeds the maximum size of " & $MaxDocumentBytes &
+        " bytes: " & path)
+    # A read failure is classified independently of end-of-file.
     raise newIrkError(EInputUnavailable,
-      "cannot read " & path & ": " & e.msg)
-  close(f)
+      "cannot read " & path & ": " & read.message)
 
-  if total > limit:
-    raise newIrkError(EInputUnavailable,
-      "the document exceeds the maximum size of " & $limit & " bytes: " & path)
-
-  let text = buffer[0 ..< total]
+  let text = read.text
   let res = parseStrict(text)
   if not res.ok:
     raise newIrkError(EInvalidJsonSyntax, res.error.message,
@@ -354,13 +348,33 @@ proc cmdReportValidate(ctx: var CliContext, args: argmod.ParsedArgs) =
     root["structural_valid"] = newJBool(outcome.ok)
     if semanticApplicable:
       root["semantic_valid"] = newJBool(semantic.ok)
+    # The issue collection is bounded at the production boundary. When
+    # entries are dropped, a marker issue names how many, so that the
+    # document cannot be read as "there were no other issues" and the
+    # verdict cannot become a success.
     var issueArray = newJArray()
-    for issue in issues:
-      var i = newJObject()
-      i["location"] = newJString(issue.location)
-      i["keyword_location"] = newJString(issue.keywordLocation)
-      i["message"] = newJString(issue.message)
-      issueArray.add i
+    # When the collection is truncated, one slot is reserved for the
+    # marker, so that the rendered document never exceeds the contract's
+    # limit. The dropped count is derived from the number of entries that
+    # are actually kept, so that the two cannot disagree: 1025 issues
+    # keep 1023 issues and drop 2, not 1.
+    let truncated = issues.len > MaxIssueCount
+    let kept = if truncated: MaxIssueCount - 1 else: issues.len
+    let dropped = issues.len - kept
+    for i in 0 ..< kept:
+      var entry = newJObject()
+      entry["location"] = newJString(boundLocation(issues[i].location))
+      entry["keyword_location"] =
+        newJString(boundLocation(issues[i].keywordLocation))
+      entry["message"] = newJString(boundMessage(issues[i].message))
+      issueArray.add entry
+    if truncated:
+      var marker = newJObject()
+      marker["code"] = newJString("issues.truncated")
+      marker["message"] = newJString(
+        "the issue collection was truncated: " & $dropped &
+        " issue(s) were dropped")
+      issueArray.add marker
     root["issues"] = issueArray
     ctx.emitJson(root)
   else:
@@ -475,7 +489,8 @@ proc run*(argv: seq[string]): int =
     # the answer and stdout must carry exactly one JSON document. The
     # failure is then summarised on stderr only.
     if ctx.json and not ctx.producedResult:
-      ctx.stdoutBuf.add errorDocument(e.data.kind, e.data.message, e.data.detail).pretty(2)
+      ctx.stdoutBuf.add sanitizeJson(
+        errorDocument(e.data.kind, e.data.message, e.data.detail)).pretty(2)
       ctx.stdoutBuf.add "\n"
       ctx.producedResult = true
     else:

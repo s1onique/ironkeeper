@@ -144,11 +144,73 @@ exit 0
 EOF
 chmod +x "$WORK/bin/gitleaks-noreport"
 
+# (e) a scanner that exits zero but writes a *nonempty* array whose members
+#     carry no recognisable finding fields. The report length, not the
+#     member fields, is authoritative.
+cat > "$WORK/bin/gitleaks-nonempty" <<'EOF'
+#!/bin/sh
+for a in "$@"; do
+  case "$prev" in --report-path) report="$a" ;; esac
+  prev="$a"
+done
+[ -n "$report" ] && printf '[{}]\n' > "$report"
+echo "no leaks found"
+exit 0
+EOF
+chmod +x "$WORK/bin/gitleaks-nonempty"
+
+# (f) a scanner that exits zero but writes a truncated / padded document.
+cat > "$WORK/bin/gitleaks-trailing" <<'EOF'
+#!/bin/sh
+for a in "$@"; do
+  case "$prev" in --report-path) report="$a" ;; esac
+  prev="$a"
+done
+[ -n "$report" ] && printf '[] trailing garbage\n' > "$report"
+echo "no leaks found"
+exit 0
+EOF
+chmod +x "$WORK/bin/gitleaks-trailing"
+
+# (g) a scanner that exits zero but writes a truncated JSON document.
+cat > "$WORK/bin/gitleaks-truncated" <<'EOF'
+#!/bin/sh
+for a in "$@"; do
+  case "$prev" in --report-path) report="$a" ;; esac
+  prev="$a"
+done
+[ -n "$report" ] && printf '[\n' > "$report"
+echo "no leaks found"
+exit 0
+EOF
+chmod +x "$WORK/bin/gitleaks-truncated"
+
+# (h) a scanner that exits zero but writes a JSON document whose root is
+#     not an array.
+cat > "$WORK/bin/gitleaks-notarray" <<'EOF'
+#!/bin/sh
+for a in "$@"; do
+  case "$prev" in --report-path) report="$a" ;; esac
+  prev="$a"
+done
+[ -n "$report" ] && printf '{"findings": []}\n' > "$report"
+echo "no leaks found"
+exit 0
+EOF
+chmod +x "$WORK/bin/gitleaks-notarray"
+
 expect_failure "secret-scan-finding"   env GITLEAKS="$WORK/bin/gitleaks-finding"   GITLEAKS_REPORT="$WORK/findings.json" GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
 expect_success "secret-scan-clean"     env GITLEAKS="$WORK/bin/gitleaks-clean"     GITLEAKS_REPORT="$WORK/clean.json"    GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
 expect_failure "secret-scan-broken"    env GITLEAKS="$WORK/bin/gitleaks-broken"    GITLEAKS_REPORT="$WORK/broken.json"   GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
 expect_failure "secret-scan-noreport"  env GITLEAKS="$WORK/bin/gitleaks-noreport"  GITLEAKS_REPORT="$WORK/none.json"     GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
 expect_failure "secret-scan-missing"   env GITLEAKS="$WORK/bin/does-not-exist"     GITLEAKS_REPORT="$WORK/missing.json"  GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
+
+# The report-validation counterexamples. Each of these scanners exits zero
+# and claims a clean scan. Each must still fail the gate.
+expect_failure "secret-scan-nonempty-array"  env GITLEAKS="$WORK/bin/gitleaks-nonempty"  GITLEAKS_REPORT="$WORK/nonempty.json"  GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
+expect_failure "secret-scan-trailing-garbage" env GITLEAKS="$WORK/bin/gitleaks-trailing"  GITLEAKS_REPORT="$WORK/trailing.json"  GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
+expect_failure "secret-scan-truncated-report" env GITLEAKS="$WORK/bin/gitleaks-truncated" GITLEAKS_REPORT="$WORK/truncated.json" GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
+expect_failure "secret-scan-report-not-array" env GITLEAKS="$WORK/bin/gitleaks-notarray" GITLEAKS_REPORT="$WORK/notarray.json"  GATE_LOG_DIR="$WORK/logs" tools/gate_secret_scan.sh
 
 echo
 echo "=== schema-drift gate: a failing drift check must fail the gate ==="

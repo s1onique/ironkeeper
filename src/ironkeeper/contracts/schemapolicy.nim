@@ -71,7 +71,9 @@
 ## crash the process, and it does not claim to: it inspects a document that
 ## has already been parsed and bounds its own recursion.
 
-import std/[json, strutils, sets]
+import std/[json, sets]
+
+from ironkeeper/contracts/schemawalk import walkSchema, SchemaMember
 
 const
   SupportedKeywords* = [
@@ -135,26 +137,6 @@ const
   Supported = supportedKeywordSet()
   Prohibited = prohibitedKeywordSet()
 
-# The keys whose *value* is a schema.
-const
-  SchemaValuedKeywords = [
-    "additionalProperties", "contains", "else", "if", "items", "not",
-    "propertyNames", "then",
-  ]
-
-# The keys whose value is an array of schemas.
-const
-  SchemaArrayKeywords = ["allOf", "anyOf", "oneOf", "prefixItems"]
-
-# The keys whose value is an object mapping names to schemas.
-const
-  SchemaMapKeywords = ["$defs", "patternProperties", "properties",
-                       "dependentSchemas"]
-
-proc escapePointer(token: string): string =
-  ## Escape a JSON Pointer reference token (RFC 6901).
-  token.replace("~", "~0").replace("/", "~1")
-
 proc checkSchemaPolicy*(schema: JsonNode): SchemaPolicyResult =
   ## Check a schema document against Ironkeeper's supported schema policy.
   ##
@@ -162,43 +144,31 @@ proc checkSchemaPolicy*(schema: JsonNode): SchemaPolicyResult =
   ## resolve any reference and does not perform any I/O. A schema that
   ## passes this check is still meta-validated before it is used.
   ##
+  ## The positions that carry keywords are decided by the shared
+  ## **schema-position walker**, so that this policy and the reference
+  ## policy never disagree about where a keyword may appear.
+  ##
   ## Returns the issues that make the schema unsupported. An empty issue
   ## list means the schema is inside the supported subset.
   var issues: seq[SchemaPolicyIssue]
 
-  proc checkSchema(node: JsonNode, path: string) =
-    if node.kind != JObject:
+  var visitor: proc (member: SchemaMember) {.closure.}
+  visitor = proc (member: SchemaMember) =
+    if Prohibited.contains(member.keyword):
+      issues.add SchemaPolicyIssue(location: member.path,
+        message: "the keyword '" & member.keyword &
+          "' is not supported by Ironkeeper")
       return
-    for key, value in node.pairs:
-      let loc = path & "/" & escapePointer(key)
-      if Prohibited.contains(key):
-        issues.add SchemaPolicyIssue(location: loc,
-          message: "the keyword '" & key & "' is not supported by Ironkeeper")
-        continue
-      if not Supported.contains(key):
-        issues.add SchemaPolicyIssue(location: loc,
-          message: "the keyword '" & key & "' is not supported by Ironkeeper")
-        continue
-      # A nested dialect declaration would change the meaning of the
-      # subschema. Only the root may declare a dialect.
-      if key == "$schema" and path.len > 0:
-        issues.add SchemaPolicyIssue(location: loc,
-          message: "a nested '$schema' declaration is not permitted")
-        continue
-      if key in SchemaValuedKeywords:
-        checkSchema(value, loc)
-      elif key in SchemaArrayKeywords:
-        if value.kind == JArray:
-          for i, item in value.elems:
-            checkSchema(item, loc & "/" & $i)
-      elif key in SchemaMapKeywords:
-        if value.kind == JObject:
-          for name, sub in value.pairs:
-            checkSchema(sub, loc & "/" & escapePointer(name))
-      # Every other supported keyword carries a plain value, not a schema.
-      # Its value is deliberately not inspected: a `const` object, an
-      # `examples` array and a `default` value are *values*, not schemas,
-      # and their member names are not keywords.
+    if not Supported.contains(member.keyword):
+      issues.add SchemaPolicyIssue(location: member.path,
+        message: "the keyword '" & member.keyword &
+          "' is not supported by Ironkeeper")
+      return
+    # A nested dialect declaration would change the meaning of the
+    # subschema. Only the root may declare a dialect.
+    if member.keyword == "$schema" and member.parent.len > 0:
+      issues.add SchemaPolicyIssue(location: member.path,
+        message: "a nested '$schema' declaration is not permitted")
+  walkSchema(schema, visitor)
 
-  checkSchema(schema, "")
   SchemaPolicyResult(ok: issues.len == 0, issues: issues)

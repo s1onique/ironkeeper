@@ -34,11 +34,12 @@
 ##     network.
 ##   * The data is validated exactly as parsed. No coercion is performed.
 
-import std/[json, strutils]
+import std/[json]
 
 import jschema
 
-from ironkeeper/contracts/schemapolicy import checkSchemaPolicy, MetaschemaUri
+from ironkeeper/contracts/schemapolicy import checkSchemaPolicy
+from ironkeeper/contracts/schemarefs import checkReferencePolicy
 
 const
   Draft2020_12* = "https://json-schema.org/draft/2020-12/schema"
@@ -56,12 +57,32 @@ type
       ## JSON Pointer to the offending keyword in the *schema*.
     message*: string
 
+  ValidationFailureKind* = enum
+    ## The kind of a validation failure.
+    ##
+    ## The kind is a *typed* classification. A consumer never has to
+    ## interpret an error message to find out what went wrong, and an
+    ## internal defect can never be mistaken for an ordinary rejection.
+    vfkNone
+      ## No failure.
+    vfkUnsupportedDialect
+      ## The schema declared a dialect this build does not implement.
+    vfkSchemaPolicy
+      ## The schema is outside the supported keyword policy.
+    vfkReferencePolicy
+      ## The schema is outside the supported reference policy.
+    vfkInternal
+      ## An internal defect occurred while evaluating the schema.
+
   ValidationOutcome* = object
     ok*: bool
     issues*: seq[SchemaIssue]
     error*: ref Exception
       ## Set when the failure was an internal defect rather than a normal
       ## validation failure.
+    failure*: ValidationFailureKind
+      ## The typed classification of the failure. It is `vfkNone` when
+      ## the outcome is a successful validation.
 
   Validator = object
     registry: SchemaRegistry
@@ -80,31 +101,6 @@ proc draftOf(schema: JsonNode): string =
     if v.kind == JString:
       return v.getStr
   ""
-
-proc collectExternalRefs(schema: JsonNode, prefix = ""): seq[string] =
-  ## Collect every reference in `schema` that is not a local JSON Pointer
-  ## and not the bundled Draft 2020-12 metaschema.
-  ##
-  ## Only `#`-prefixed pointers are considered local. The metaschema URI is
-  ## allowed because it is bundled in the registry and resolved entirely
-  ## offline; it is the only absolute reference Ironkeeper permits.
-  ## Everything else is prohibited, because resolving it would require a
-  ## network fetch.
-  ##
-  ## `$dynamicRef` is collected as well: it is a reference construct, and a
-  ## dynamic reference that is not local is prohibited by the same rule.
-  if schema.kind == JObject:
-    for key, value in schema.pairs:
-      let loc = if prefix.len == 0: "/" & key else: prefix & "/" & key
-      if (key == "$ref" or key == "$dynamicRef") and value.kind == JString:
-        let target = value.getStr
-        if not target.startsWith("#") and target != MetaschemaRef:
-          result.add target
-      else:
-        result.add collectExternalRefs(value, loc)
-  elif schema.kind == JArray:
-    for i, value in schema.elems:
-      result.add collectExternalRefs(value, prefix & "/" & $i)
 
 proc metaValidate(v: Validator, schema: JsonNode): ValidationOutcome =
   ## Validate `schema` against the Draft 2020-12 metaschema.
@@ -131,7 +127,8 @@ proc validateAgainst*(v: Validator, data, schema: JsonNode): ValidationOutcome =
   ##      schema-bearing position must be one Ironkeeper supports, and no
   ##      prohibited construct may appear;
   ##   3. the **reference policy**: every reference must be a local JSON
-  ##      Pointer or the bundled metaschema URI.
+  ##      Pointer, a local `$anchor`, or the bundled metaschema URI, and
+  ##      must resolve to a schema-bearing position.
   ##
   ## Gate 2 is not implied by gate 1. A misspelled keyword is a valid
   ## Draft 2020-12 schema, so meta-validation accepts it and the keyword's
@@ -146,6 +143,7 @@ proc validateAgainst*(v: Validator, data, schema: JsonNode): ValidationOutcome =
   if dialect.len > 0 and dialect != Draft2020_12:
     return ValidationOutcome(
       ok: false,
+      failure: vfkUnsupportedDialect,
       error: newException(ValueError,
         "unsupported JSON Schema dialect: " & dialect))
 
@@ -170,15 +168,25 @@ proc validateAgainst*(v: Validator, data, schema: JsonNode): ValidationOutcome =
       parts.add issue.location & ": " & issue.message
     return ValidationOutcome(
       ok: false,
+      failure: vfkSchemaPolicy,
       error: newException(ValueError,
         "the schema is outside the supported schema policy: " & parts))
 
-  let externalRefs = collectExternalRefs(schema)
-  if externalRefs.len > 0:
+  # The reference policy. It is checked in the same positions the schema
+  # policy uses, so that a `$ref` inside a `const` value is never mistaken
+  # for a reference.
+  let references = checkReferencePolicy(schema)
+  if not references.ok:
+    var parts = ""
+    for issue in references.issues:
+      if parts.len > 0:
+        parts.add "; "
+      parts.add issue.location & ": " & issue.message
     return ValidationOutcome(
       ok: false,
+      failure: vfkReferencePolicy,
       error: newException(ValueError,
-        "external schema reference is not permitted: " & externalRefs[0]))
+        "the schema is outside the supported reference policy: " & parts))
 
   try:
     let res = validate(data, schema, v.registry)
@@ -189,10 +197,10 @@ proc validateAgainst*(v: Validator, data, schema: JsonNode): ValidationOutcome =
                              message: e.message)
     ValidationOutcome(ok: res.valid, issues: issues)
   except CatchableError as e:
-    ValidationOutcome(ok: false, error: e)
+    ValidationOutcome(ok: false, error: e, failure: vfkInternal)
   except Exception as e:
     # Upstream defects (for example the Draft 4 boolean `exclusiveMaximum`
     # dereference) surface as `Defect`, which is not a `CatchableError`.
     # They are converted into an ordinary failure so that a hostile schema
     # can never terminate the process.
-    ValidationOutcome(ok: false, error: e)
+    ValidationOutcome(ok: false, error: e, failure: vfkInternal)

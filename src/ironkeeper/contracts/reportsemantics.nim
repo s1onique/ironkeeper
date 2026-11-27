@@ -40,6 +40,11 @@ proc issue(code, msg, loc: string): ReportSemanticIssue =
   ReportSemanticIssue(code: code, message: msg, location: loc)
 
 const
+  TruncatedFindingsCode* = "findings.truncated"
+    ## The code of the finding that marks a truncated findings
+    ## collection. A report that carries it does not know which findings
+    ## it dropped, so it cannot claim that the subject is healthy.
+
   MaxDaysInMonth* = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     ## The number of days in each month, with February at its leap-year
     ## maximum. The leap-year rule is applied separately.
@@ -192,5 +197,23 @@ proc validateReportSemantics*(doc: JsonNode): ReportSemanticResult =
         "/assessment/verdict")
     else:
       discard
+
+  # ---- a truncated finding collection cannot claim PASS -------------------
+  # A report that dropped findings does not know what it dropped. A PASS
+  # claim that rests on a truncated collection is therefore unsupported:
+  # the dropped findings may have been errors. The producer already
+  # refuses to emit such a claim; the semantic layer rejects one that
+  # arrives from elsewhere.
+  if verdict == "PASS" and doc.hasKey("findings") and
+     doc["findings"].kind == JArray:
+    for finding in doc["findings"].elems:
+      if finding.kind == JObject and finding.hasKey("code") and
+         finding["code"].kind == JString and
+         finding["code"].getStr == TruncatedFindingsCode:
+        issues.add issue("report.pass_with_truncated_findings",
+          "a report whose findings were truncated must not carry a PASS " &
+          "assessment",
+          "/assessment/verdict")
+        break
 
   ReportSemanticResult(ok: issues.len == 0, issues: issues)
