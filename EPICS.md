@@ -19,7 +19,7 @@ storage device.
 | Milestone | Scope | Status |
 |---|---|---|
 | M0 — Foundations | Architecture, contracts, CLI, tests, CI | **accepted** — the qualified commit `b85fa0bb9b7f50e3ce170cf6ab9ae776207a4336` passed all four CI jobs (runs `45935432045` and `45935427044`); the tree is identical to the current `main` (`c2c34e34721fced22080a3b6ead6d7c3c77041bd`), so M0 is accepted on the basis of the qualified identical tree. The later main-run failure (`45935586165`) was an external environment failure: the amd64 dependency installation step received HTTP 403 from `packages.microsoft.com`. The other three jobs succeeded. |
-| M1 — Read-only inventory and SMART observations | Discovery, identity, SMART acquisition | **implementation complete, live acceptance pending** — the implementation, the contracts and the native CI gates are in place; the live SAS acceptance is executed by the operator against the qualified executable |
+| M1 — Read-only inventory and SMART observations | Discovery, identity, SMART acquisition | **implementation repaired, live acceptance pending** — the amendment ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01 repaired the safety, attribution and observation-correctness defects of the implementation: the test seams are compile-time properties, the exit status uses the upstream bit definitions and the real numeric companions, the capacity arithmetic conserves every digit, the collection completeness follows the requested observation coverage, and the attribution is refused when the device disappears, is replaced, cannot be rediscovered or contradicts the tool. The live acceptance is executed by the operator against the qualified production artefact; the procedure is in `.factory/evidence/ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01/live-requalification.md`. The public-history privacy status is **unresolved** and needs an operator-authorised remediation. |
 | M2 — Operational qualification daemon | Qualification profiles, assessment engine, job engine | planned |
 | M3 — Autonomous housekeeping and observability | Scheduling, metrics, production workloads | planned |
 | M4 — Advanced lifecycle management | Admission, retirement, multi-host aggregation | planned |
@@ -119,10 +119,39 @@ storage device.
   the exit-status bitmask, the SCSI capacity and protection decoder and
   the SAS, SATA and NVMe normalisation. The **self-test** operations are
   deliberately **not** implemented in M1: they are intrusive and belong
-  to a later milestone with an ownership model.
+  to a later milestone with an ownership model. The amendment
+  ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01 corrected the
+  exit-status semantics to the upstream definitions, replaced the
+  invented numeric companions with the real `KEY_s` and `KEY_le` ones,
+  made the capacity arithmetic exact and made the missing protection
+  evidence distinguishable from an observed disabled protection.
 * **Next step:** Implement the self-test operations in the milestone that
   owns the device-ownership model (IRK-05/IRK-06), with the fail-closed
   admission rules.
+
+### ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01 — the M1 repair
+
+* **Status:** done (the implementation and the contracts); the live
+  acceptance and the public-history remediation are open
+* **Owning ACT:** ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01
+* **Predecessor:** ACT-IRONKEEPER-READONLY-INVENTORY-01, independent
+  review disposition `PARTIAL_INVENTORY`
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01/`
+* **Acceptance criteria:** the production binary cannot activate the test
+  seams; the backend execution preserves the stream identity and the
+  deadline; the device disappearance and the device replacement refuse
+  the attribution; a failed acquisition cannot claim complete evidence;
+  the SMART exit bits and the numeric companions follow the upstream
+  definitions; the capacity arithmetic conserves every digit; a missing
+  protection field never becomes Type 0; the identity confidence and the
+  namespace semantics are corrected; the evidence directory is owned
+  atomically; the runtime output and the manifest are validated against
+  the contracts before they are published.
+* **Next step:** the operator requalification on the storage host
+  (procedure in the evidence directory), and the operator decision on the
+  public-history remediation. The successor ACT is
+  ACT-IRONKEEPER-DEVICE-OWNERSHIP-SAFETY-01.
 
 ### IRK-05 — Safety and device ownership detection
 
