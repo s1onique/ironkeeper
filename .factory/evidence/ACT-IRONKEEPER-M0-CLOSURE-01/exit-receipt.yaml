@@ -1,0 +1,227 @@
+ACT_ID: ACT-IRONKEEPER-M0-CLOSURE-01
+ENTRY_HEAD: c3c4b5881bdbc2fdfa2103fc1da36097180da4cb
+SUBJECT_HEAD: 2c8ef1e2c3108ce4f26821398256d449795b6056
+CI_HEAD: NONE — no CI run exists for the subject, because the sandbox
+# cannot push to the remote. The subject is a local commit only. The
+# entry commit c3c4b588 has CI runs; they are recorded under
+# PREDECESSOR_REMOTE_RUNS.
+FINAL_HEAD: 2c8ef1e2c3108ce4f26821398256d449795b6056
+# FINAL_HEAD is the head of the executable subject at the time this
+# receipt was written. The closure documents are added by the commit that
+# carries this file; that commit cannot contain its own hash, so the two
+# identities are recorded separately.
+BRANCH: act/ironkeeper-foundation-01-amendment-03
+
+PREDECESSOR_REMOTE_RUNS: |
+  Remote CI run 45926174624 and remote CI run 45926147466 both executed the
+  entry commit c3c4b5881bdbc2fdfa2103fc1da36097180da4cb on branch
+  act/ironkeeper-foundation-01-amendment-03. Both runs reached a terminal
+  conclusion (failure). Job-level conclusions, observed from the GitHub
+  Actions API:
+    run 45926174624: build and test (amd64) success;
+                      build and test (arm64) success;
+                      secret scan success;
+                      validator qualification failure.
+    run 45926147466: build and test (amd64) success;
+                      build and test (arm64) success;
+                      secret scan success;
+                      validator qualification failure.
+  In both runs the failing step of the validator-qualification job is
+  step 3, "Install the pinned Nim toolchain"; the qualification step
+  (step 7) was never reached. The predecessor's own receipt reports that
+  it could not authenticate to GitHub; that observation is historical and
+  is superseded by these remote runs, which exist and are terminal. The
+  predecessor's receipts are retained unchanged.
+
+CI_BOOTSTRAP: |
+  Root cause: the bootstrap appended the toolchain directory to `$PATH`
+  with a redirection. PATH is a shell variable holding a colon-separated
+  directory list, not an environment file, so the redirection created a
+  file whose name was the whole value of PATH.
+  Correction: tools/install_nim_toolchain.sh is now the single
+  implementation of the bootstrap. It verifies the pinned version and the
+  pinned sha256 of the distribution, checks that the extracted compiler is
+  executable, exports PATH="$nim_bin:$PATH", appends the directory to
+  "$GITHUB_PATH", and verifies the reported compiler version.
+  Regression check: tools/gate_ci_bootstrap.sh (10 checks, all passing)
+  drives the production script against a synthetic toolchain and asserts
+  that the compiler is on PATH, that GITHUB_PATH carries the directory,
+  that no file is created by writing to PATH, that a missing compiler is
+  refused, and that a compiler with the wrong version is refused.
+
+REQUALIFICATION_DECISION: |
+  tools/requalification_needed.sh is fail-closed. A missing base, an
+  empty base, the all-zero object id of a first push, an unresolvable
+  base and a failing git diff all produce requalification=needed. The
+  relevant-path policy covers the parser, the adapter, the schemas, the
+  qualification harness, the qualification fixtures, the corpus and
+  remote trees, the pinned dependency, the pinned toolchain, the
+  qualification workflow and the decision script itself. Event data is
+  passed through the environment, never interpolated into shell source.
+  Regression check: tools/gate_requalification_decision.sh (21 checks, all
+  passing) exercises the production script against temporary repositories.
+  The workflow now runs the qualification step unconditionally, so a green
+  job can never hide a skipped qualification.
+
+CONFORMANCE_ACCOUNTING: |
+  The raw upstream measurement and the adapter measurement are separate.
+  A wrong raw answer to a mandatory case is a raw failure regardless of
+  whether the case lies outside Ironkeeper's supported subset. An
+  authorised limitation never turns a failure into a pass: it is the
+  authority that lets the product qualification accept a raw failure that
+  lies outside the required subset. The product verdict is PASS when the
+  adapter measurement passed and every raw failure is an authorised
+  limitation outside the required subset.
+  Counting invariant: denominator = passed + failed for every reported
+  measurement. A measurement with an empty denominator establishes
+  nothing and cannot be a PASS.
+
+EXCLUSION_AUTHORITY: |
+  An exclusion is honoured only when it names an existing corpus case,
+  carries a reason, is not duplicated, and names a case outside the
+  required subset. A stale, duplicated, malformed or unauthorised entry
+  is unusable evidence: it fails the qualification and never contributes
+  to the denominator. Exclusions are never counted as passes.
+  Witnesses: tools/validator_conformance_witnesses.nim demonstrates a
+  wrong raw answer outside the adapter subset, an adapter refusal of an
+  in-subset case, a stale exclusion naming a nonexistent case, an empty
+  effective denominator, a correct mixed answer set, and an explicitly
+  authorised policy exclusion. The always-accept, always-reject, inverted
+  and execution-error witnesses remain mandatory and still fail the
+  qualification.
+
+CORPUS_AND_REMOTE_IDENTITY: |
+  The qualification digest binds both consumed trees: the Draft 2020-12
+  corpus and the remote schema tree.
+    inputs_digest_sha256=45bf30e6bc639547d4b7a75fe152fce5451e523fa976ff82f0576e9c6fcd1322
+    remote_schema_files=79
+    remote_digest_fnv1a64=F18EE856D4C17EF4
+  A remote schema that cannot be parsed is refused, not skipped. A
+  caller-supplied digest override is a development convenience: the
+  result is explicitly classified as non-authoritative unless the caller
+  also states that the result is authoritative. Offline schema resolution
+  is preserved. Regression check: tools/gate_remote_schema_integrity.sh
+  (8 checks, all passing) uses a single synthetic remote-schema mutation
+  to show that a changed remote input is detected.
+
+UTF8_OUTPUT_BOUNDARY: |
+  The output bounds are counted in code points, because the JSON Schema
+  maxLength keyword counts code points. A cut is taken at a code point
+  boundary, so a truncated value is always valid Unicode and every
+  emitted document is valid UTF-8. The truncation marker fits inside the
+  bound; a bound too small for the long marker uses the short marker.
+  Invalid external text receives the explicit diagnostic representation
+  "[invalid utf-8] " with U+FFFD in place of the invalid bytes. A
+  shortened stable code carries the truncation marker, so it cannot be
+  read as an unrelated code.
+
+TRUNCATION_ACCOUNTING: |
+  kept = maximum_items - 1 when the collection is truncated, and
+  dropped = original_count - kept. A collection of 1024 findings is not
+  truncated; a collection of 1025 findings keeps 1023 findings, drops 2,
+  and carries the marker. The same invariant applies to the validation
+  issue collection. A truncated report cannot carry an unsupported PASS
+  claim: the verdict is not PASS when findings were dropped, and the
+  semantic layer rejects an external document that pairs PASS with a
+  truncated findings collection.
+
+RAW_MANDATORY_RESULTS: |
+  1300 mandatory cases, 1300 passed, 0 failed (denominator = 1300).
+  Measured against jschema commit a936862556f24fde475059c560c1a13f00291457
+  and suite revision 245a45abc90190c0bff04d97e6d2b541b4bb9f12.
+RAW_OPTIONAL_RESULTS: |
+  1074 optional cases. Optional results are reported separately from the
+  mandatory results and do not block the product qualification; they are
+  not described as measured successful conformance.
+ADAPTER_SUPPORTED_RESULTS: |
+  949 in-subset mandatory cases, 949 passed, 0 failed
+  (denominator = 949).
+ADAPTER_POLICY_EXCLUSIONS: |
+  351 mandatory cases lie outside the supported subset and are excluded
+  with their reason recorded (unsupported keywords such as
+  unevaluatedProperties, unevaluatedItems, dependencies, $dynamicRef,
+  $dynamicAnchor, contentMediaType, contentEncoding, contentSchema, and
+  dialects this build does not implement). No exclusion was unauthorised,
+  stale, duplicated or malformed.
+
+LINUX_AMD64_NATIVE: UNMET — see OPEN_FINDINGS
+LINUX_ARM64_NATIVE: UNMET — see OPEN_FINDINGS
+SECRET_SCAN: UNMET — see OPEN_FINDINGS
+VALIDATOR_QUALIFICATION_STEP: |
+  The qualification step executes the production script
+  tools/qualify_validator.sh, which pins the validator commit and the
+  suite revision, verifies the digest over the corpus and the remote tree,
+  runs the non-vacuity witnesses and then runs the conformance harness.
+VALIDATOR_QUALIFICATION_EXECUTED: |
+  Executed and passed on the executable subject, on the local host
+  (macOS, arm64), against the pinned validator commit and the pinned
+  suite revision:
+    validator_commit=a936862556f24fde475059c560c1a13f00291457
+    suite_revision=245a45abc90190c0bff04d97e6d2b541b4bb9f12
+    inputs_digest_sha256=45bf30e6bc639547d4b7a75fe152fce5451e523fa976ff82f0576e9c6fcd1322
+    qualification_authoritative=true
+    raw_verdict=PASS  adapter_verdict=PASS  product_verdict=PASS
+  The native Linux amd64 execution of the same step is UNMET, because the
+  sandbox cannot push the subject to the remote.
+
+CI_RUN_ID: NONE — the subject has not been pushed
+CI_CONCLUSION: NONE — the subject has not been pushed
+POST_QUALIFICATION_DIFF: |
+  The difference between the entry commit and the subject commit touches
+  only the qualification-relevant paths (CI workflow, qualification
+  harness, output contracts, qualification scripts and fixtures), so the
+  requalification decision for the subject is "needed" under the corrected
+  policy. The qualification therefore runs on the subject, whether or not
+  the decision were consulted.
+PATCH_HYGIENE: |
+  Clean. No whitespace errors (git diff --check), no tracked build
+  output, no credentials, no real device identifiers. The added gate logs
+  directory is ignored. The MIT licence is preserved and unmodified.
+TRACKED_DIRT: none
+HARDWARE_OPERATIONS: none — no device was read, written or probed
+HELD_OBSERVATIONS: |
+  None. The four background observations held by the predecessor are
+  classified in the entry commit and are not re-litigated here.
+EPIC_BOARD_STATUS: |
+  EPICS.md records M0 as acceptance-pending, records the predecessor ACT
+  as execution-complete but qualification-partial, and records that the
+  predecessor's CI authentication failure is historical. The board entry
+  for this ACT names the closure authority and the next ACT.
+
+ACCEPTANCE_GATES:
+  C01: MET — the entry commit and the remote authority are reconciled.
+  C02: MET — the Nim bootstrap executes correctly; the regression check passes.
+  C03: MET — missing change evidence cannot suppress the qualification.
+  C04: MET — the raw and the adapter conformance accounting are coherent.
+  C05: MET — invalid exclusion evidence fails the qualification.
+  C06: MET — the corpus and the remote schema identities are verified.
+  C07: MET — the output is UTF-8 safe and the truncation counts are accurate.
+  C08: UNMET — the native Linux amd64 build and tests of the subject were not observed.
+  C09: UNMET — the native Linux arm64 build and tests of the subject were not observed.
+  C10: UNMET — the secret-scan gate of the subject was not observed.
+  C11: PARTIAL — the validator qualification executed and passed on the subject,
+       but not on native Linux amd64.
+  C12: MET — the exact subject is recorded; the CI identity is recorded as absent.
+  C13: MET — patch hygiene is clean and the MIT licence is preserved.
+  C14: MET — no hardware operation and no infrastructure modification.
+  C15: MET — the epic board and this closure evidence are consistent.
+
+OPEN_FINDINGS: |
+  1. The sandbox cannot push to the remote. The SSH agent authenticates as
+     the account "kaktyz", which has no write access to
+     s1onique/ironkeeper ("Permission to s1onique/ironkeeper.git denied to
+     kaktyz"), the gh CLI token is invalid, and no credential helper can
+     supply one. The subject therefore has no CI run, and C08, C09, C10 and
+     the native part of C11 are unmet.
+  2. Operator action, exactly:
+
+         git push origin act/ironkeeper-foundation-01-amendment-03
+
+     The push triggers the native Linux amd64 and arm64 build-and-test
+     jobs, the secret-scan gate and the validator-qualification job, whose
+     qualification step now always executes. M0 is closed only when that
+     run reaches a terminal conclusion with all four jobs successful, and
+     when the run is recorded against this subject.
+
+FINAL_VERDICT: PARTIAL_FOUNDATION
+NEXT_RECOMMENDED_ACT: ACT-IRONKEEPER-READONLY-INVENTORY-01

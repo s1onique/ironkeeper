@@ -328,6 +328,26 @@ archive convention is:
   file and keeps its original text. It is never rewritten.
 * History is not removed to reduce the size of the active board.
 
+### ACT-IRONKEEPER-M0-CLOSURE-01
+
+* **Status:** execution-complete, verdict `PARTIAL_FOUNDATION`
+* **Scope:** Close M0. Correct the narrow acceptance defects that
+  independent review identified — the CI toolchain bootstrap, the
+  fail-closed requalification decision, the qualification accounting, the
+  qualification input identity and the output truncation bounds — and
+  qualify the actual subject.
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-M0-CLOSURE-01/`
+* **Subject:** `2c8ef1e2c3108ce4f26821398256d449795b6056`
+  (the executable subject; the closure documents are a later commit and
+  carry their own identity).
+* **Open:** the subject has no native CI run, because the sandbox cannot
+  push to the remote. The operator action is
+  `git push origin act/ironkeeper-foundation-01-amendment-03`.
+* **Next:** ACT-IRONKEEPER-READONLY-INVENTORY-01, once the native run of
+  the subject has reached a terminal conclusion with all four jobs
+  successful.
+
 ### ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-03
 
 * **Status:** execution-complete, qualification-partial
