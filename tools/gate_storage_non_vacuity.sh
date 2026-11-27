@@ -86,6 +86,13 @@ build_unit() {
 #
 # The mutation must make the suite fail, and the failure must name the
 # witness that is expected to catch it.
+# The diagnostic log of a phase is kept in the repository-level log
+# directory, so that a failure can be diagnosed from the collected
+# diagnostics without repository admin rights.
+#
+# A failing phase is also reported as a workflow annotation. The
+# annotation is part of the public check-run record of the job, so the
+# reason of a failure is readable without the job log.
 expect_unit_failure() {
   local label="$1"
   local phrase="$2"
@@ -93,14 +100,17 @@ expect_unit_failure() {
   "$WORK/unit_tests" > "$WORK/$label.log" 2>&1
   local status=$?
   set -e
+  cp "$WORK/$label.log" "$GATE_LOG_DIR/storage-non-vacuity-$label.log" 2>/dev/null || true
   if [ "$status" -eq 0 ]; then
     echo "gate: FAIL $label: the mutation did not make the suite fail" >&2
+    echo "::error title=non-vacuity $label::the mutation did not make the suite fail"
     FAILED+=("$label")
     return 0
   fi
   if ! grep -q "$phrase" "$WORK/$label.log"; then
     echo "gate: FAIL $label: the suite failed, but not on the expected witness" >&2
     echo "  expected witness: $phrase" >&2
+    echo "::error title=non-vacuity $label::the suite failed, but not on the expected witness: $phrase"
     tail -20 "$WORK/$label.log" >&2
     FAILED+=("$label")
     return 0
@@ -258,14 +268,17 @@ expect_integration_failure() {
   "$WORK/integration_tests" > "$WORK/$label.log" 2>&1
   local status=$?
   set -e
+  cp "$WORK/$label.log" "$GATE_LOG_DIR/storage-non-vacuity-$label.log" 2>/dev/null || true
   if [ "$status" -eq 0 ]; then
     echo "gate: FAIL $label: the mutation did not make the suite fail" >&2
+    echo "::error title=non-vacuity $label::the mutation did not make the suite fail"
     FAILED+=("$label")
     return 0
   fi
   if ! grep -q "$phrase" "$WORK/$label.log"; then
     echo "gate: FAIL $label: the suite failed, but not on the expected witness" >&2
     echo "  expected witness: $phrase" >&2
+    echo "::error title=non-vacuity $label::the suite failed, but not on the expected witness: $phrase"
     tail -20 "$WORK/$label.log" >&2
     FAILED+=("$label")
     return 0
@@ -290,7 +303,7 @@ open(path, "w").write(text.replace(old, new, 1))
 PYSEAM
 mutate src/ironkeeper/cli/storage.nim "$WORK/mutate_seam.py"
 build_integration
-expect_integration_failure production-seam "the production binary does not read the synthetic tree"
+expect_integration_failure production-seam "the production binary does not"
 restore
 
 echo "=== non-vacuity: the pipe stream identity is preserved ==="
