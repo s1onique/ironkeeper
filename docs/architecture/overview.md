@@ -281,9 +281,21 @@ use `std/json` at all, so there is no permissive fallback underneath it.
 
 ## Numeric representation
 
-JSON Schema numeric semantics are defined over IEEE-754 binary64. Binary64
-cannot represent every decimal exactly, so a contract that accepts a
-number must decide, explicitly, what it accepts and what it refuses.
+JSON Schema numeric semantics are defined over IEEE-754 binary64. That
+is the *specification's* numeric model, and it is not the same thing as
+the set of numbers Ironkeeper's own contracts accept.
+
+**The restriction below is an Ironkeeper implementation restriction, not a
+JSON Schema requirement.** JSON Schema permits a fractional number, a
+number beyond 2^53, and a number that no binary64 can hold exactly; the
+upstream validator accepts them. Ironkeeper's *own* contracts do not need
+them: they carry small integers — schema versions, severities, counts —
+so the strict reader refuses what it cannot represent exactly. A contract
+that needs such a value must carry it as a canonical decimal *string*.
+
+Binary64 cannot represent every decimal exactly, so a contract that
+accepts a number must decide, explicitly, what it accepts and what it
+refuses.
 
 ### The defect this rule prevents
 
@@ -333,6 +345,38 @@ project does not claim that it does. The strict reader never represents a
 fraction at all: a non-integral decimal is *rejected* rather than rounded.
 The accepted value set is therefore a strict subset of what binary64 can
 hold, and every accepted value is exact in binary64.
+
+### Lexical resource limits and mathematical value limits
+
+The two kinds of limit are different, and they are documented separately.
+
+A **lexical resource limit** bounds the *size* of the source text: how
+many bytes a document may occupy, how deeply it may nest, how many digits
+a number's exponent may carry. A lexical limit is a resource decision.
+It is enforced on the text, before the value is understood, and it never
+depends on the mathematical value.
+
+A **mathematical value limit** bounds the *value*: an integer must fit
+in a 64-bit signed integer, and an integral value must be exactly
+representable in binary64, which bounds its magnitude at 2^53. A
+mathematical limit is a representational decision. It is enforced on the
+classified number, from its exact decimal digits, never after a lossy
+conversion.
+
+| Limit | Kind | Value | Where |
+|---|---|---|---|
+| Document size | lexical | 4 MiB | `MaxDocumentBytes`, enforced by the bounded reader |
+| Nesting depth | lexical | 64 | `MaxNestingDepth`, enforced by the strict reader |
+| Exponent digits | lexical | 9 | `MaxExponentDigits`, enforced by the exact classifier |
+| Integer magnitude | mathematical | `int64` | `classifyExact` |
+| Exact binary64 magnitude | mathematical | 2^53 | `MaxExactIntMagnitude` |
+
+A number that violates a *lexical* limit is refused because the document
+is too large or too deeply nested to process. A number that violates a
+*mathematical* limit is refused because the document model cannot hold
+the value exactly. The two are never conflated: a document that is within
+every lexical limit is never refused for being large, and a small
+document is refused for a value it cannot represent.
 
 ### Two different policies
 
@@ -567,35 +611,87 @@ results are counted, reported individually, and fail the qualification.
 
 #### Results
 
+The counts below are the ones the **corrected** harness produces. The
+previous receipt's counts are **superseded**: the harness they came from
+loaded `expectedValid` and never compared it with the observed verdict, so
+they measured activity, not conformance. The historical observation is
+retained here — the harness did produce those counts — but it does not
+establish conformance.
+
 ```
 $ tools/qualify_validator.sh --suite <path>
 validator_commit=a936862556f24fde475059c560c1a13f00291457
 validator_tree_sha256=323f47f85dba93a0f96bd3ffd6ec964abe2663e260c988596d7a49a0d68573a8
 suite_revision=245a45abc90190c0bff04d97e6d2b541b4bb9f12
+corpus_digest_sha256=81b3abac420e41bc48c5048e6f80112828972374e332c92190de9c55bc146957
 draft=2020-12
-mandatory_total=1337
-mandatory_passed=1337
-mandatory_failed=0
-optional_total=1037
-optional_passed=1031
-optional_failed=6
-adapter_policy_rejected=312
-unexplained=0
+corpus_files=80
+corpus_cases=2374
+mandatory_cases=1300
+optional_cases=1074
+[raw-upstream]
+  denominator=1300
+  passed=1300
+  failed=0
+[ironkeeper-adapter]
+  denominator=949
+  passed=949
+  failed=0
+raw_verdict=PASS
+adapter_verdict=PASS
 ```
 
-| Corpus | Total | Passed | Failed |
-|---|---|---|---|
-| Mandatory draft 2020-12 | 1337 | **1337** | **0** |
-| Optional draft 2020-12 | 1037 | 1031 | 6 |
+| Measurement | Corpus | Denominator | Passed | Failed |
+|---|---|---|---|---|
+| Raw upstream validator | Mandatory draft 2020-12 | 1300 | **1300** | **0** |
+| Ironkeeper adapter | Mandatory draft 2020-12, supported subset | 949 | **949** | **0** |
 
-All six optional failures are in `optional/ecmascript-regex.json`: the
-ECMA-262 regular expression semantics that `std/re` (PCRE) does not
-implement. The specification marks that directory optional.
+The two denominators differ because they measure different things. The
+**raw upstream** measurement covers the whole mandatory corpus: it drives
+the library directly, with no Ironkeeper policy in the way, and it is the
+measurement of the *library*. The **adapter** measurement covers the
+mandatory cases whose schema lies inside Ironkeeper's documented supported
+subset: it is the measurement of *Ironkeeper*. The difference — 351
+mandatory cases — is the supported subset at work, and every one of them
+is excluded with its exact reason recorded, never silently dropped.
 
-The 312 adapter rejections are the supported schema policy at work: the
-adapter deliberately refuses valid generic schemas that fall outside
-Ironkeeper's supported subset. They are classified, not counted as
-unexplained successes or failures.
+The optional corpus (1074 cases) is classified individually and reported
+separately. Its membership is derived from the corpus structure — the
+official suite places optional tests in a directory named `optional` — and
+not from a hand-maintained list of file names.
+
+#### The oracle
+
+A case passes only when the **observed** verdict equals the **expected**
+verdict. The harness never counts "the validator returned something" as a
+pass. The oracle is witnessed against controlled providers before every
+qualification run:
+
+| Provider | Expected verdict |
+|---|---|
+| always accepts | FAIL |
+| always rejects | FAIL |
+| inverted verdict | FAIL |
+| raises an execution error | FAIL |
+| correct verdict | PASS |
+| verdict for an explicitly unsupported case | PASS, with the unsupported case explicitly classified |
+
+The witnesses drive the production counting and terminal-verdict logic;
+they are not a parallel implementation of it. A harness whose oracle
+cannot be shown to reject a wrong answer is not an oracle.
+
+#### The exclusions
+
+An exclusion is only honoured when it is **authorised**:
+
+* the harness itself determined, from the schema document alone, that the
+  case lies outside the supported subset; or
+* the exact case identity is listed in the repository's authorised
+  limitation list, with a reason.
+
+The implementation under test can never exclude its own case. When it
+refuses a case the harness considers supported, that refusal is a
+**failure**, not an exclusion.
 
 #### The known upstream defect, and the adapter that contains it
 

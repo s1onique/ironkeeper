@@ -170,6 +170,12 @@ jobs:
       - name: Verify the embedded schemas match the repository
         run: tools/gate_schema_drift.sh
 
+      # The fault-injection harness exercises the *actual* production gate
+      # scripts with controlled failing dependencies. It is lightweight: it
+      # needs no network and no hardware, so it runs on every change.
+      - name: Fault-inject the production gates
+        run: tools/gate_fault_injection.sh
+
       # The independent validator is installed into a dedicated virtual
       # environment in its own step, and every step that uses it refers
       # to it by absolute path. A bare `pip install` places the console
@@ -240,6 +246,112 @@ jobs:
             gate-logs/
           retention-days: 7
           if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------
+  # The validator qualification.
+  #
+  # The upstream conformance suite is large. It is not run for every
+  # ordinary change: the decision is made by the repository-owned script
+  # `tools/requalification_needed.sh`, from the paths that changed.
+  # ---------------------------------------------------------------------
+  validator-qualification:
+    name: validator qualification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install the pinned Nim toolchain
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)  nim_arch=x64;   nim_sha="$NIM_SHA256_AMD64" ;;
+            aarch64) nim_arch=arm64; nim_sha="$NIM_SHA256_ARM64" ;;
+            *) echo "unsupported runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          archive="nim-${NIM_VERSION}-linux_${nim_arch}.tar.xz"
+          mkdir -p "$RUNNER_TEMP/nim"
+          cd "$RUNNER_TEMP/nim"
+          curl -fsSLO "https://nim-lang.org/download/${archive}"
+          echo "${nim_sha}  ${archive}" | sha256sum -c -
+          tar xf "${archive}"
+          echo "$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin" >> "$GITHUB_PATH"
+          echo "$RUNNER_TEMP/nim/nim-${NIM_VERSION}/bin" >> "$PATH"
+          nim --version
+
+      - name: Install the PCRE runtime dependency
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libpcre3
+          ldconfig -p | grep -i pcre
+
+      - name: Resolve pinned dependencies
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/jschema"
+          git clone --quiet https://github.com/Niminem/jschema.git \
+            "$RUNNER_TEMP/jschema"
+          git -C "$RUNNER_TEMP/jschema" checkout --quiet "${JSCHEMA_COMMIT}"
+          actual=$(git -C "$RUNNER_TEMP/jschema" archive HEAD | sha256sum | cut -d" " -f1)
+          test "${actual}" = "${JSCHEMA_TREE_SHA256}"
+          mkdir -p "$HOME/.nimble/pkgs2/jschema-0.1.0"
+          cp -R "$RUNNER_TEMP/jschema/src" "$HOME/.nimble/pkgs2/jschema-0.1.0/src"
+          cp "$RUNNER_TEMP/jschema/LICENSE" "$HOME/.nimble/pkgs2/jschema-0.1.0/"
+          cp "$RUNNER_TEMP/jschema/jschema.nimble" \
+            "$HOME/.nimble/pkgs2/jschema-0.1.0/jschema.nimble"
+          printf '%s\n' 'requires "jschema == 0.1.0"' \
+            > "$HOME/.nimble/pkgs2/jschema-0.1.0/nimble.paths"
+          echo "IRK_DEPS_PATH=$HOME/.nimble/pkgs2/jschema-0.1.0/src" \
+            >> "$GITHUB_ENV"
+
+      # The decision is made by the repository-owned script, not by a
+      # path filter written in the workflow file.
+      - name: Decide whether requalification is required
+        id: requalify
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ]; then
+            base=HEAD
+          fi
+          decision=$(bash tools/requalification_needed.sh "$base" | tee /dev/stderr | grep '^requalification=' | head -1)
+          echo "decision=${decision#requalification=}" >> "$GITHUB_OUTPUT"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+
+      - name: Qualify the validator
+        if: steps.requalify.outputs.decision == 'needed'
+        run: tools/qualify_validator.sh
+
+      - name: Record the requalification decision
+        run: |
+          {
+            echo "decision: ${{ steps.requalify.outputs.decision }}"
+            echo "base: ${{ steps.requalify.outputs.base }}"
+            echo "head: ${{ github.sha }}"
+          } | tee requalification-decision.txt
+
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo '### Validator qualification'
+            echo '```'
+            for f in gate-logs/*.log; do
+              [ -e "$f" ] || continue
+              echo "--- $f ---"
+              cat "$f"
+            done
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------
   # Secret scanning. Runs against the whole history, not just the tip.

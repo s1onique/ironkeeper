@@ -45,6 +45,12 @@ proc checkEq*(suite: TestSuite, what: string, actual, expected: int) =
   if actual != expected:
     suite.fail(what & ": expected " & $expected & " but got " & $actual)
 
+proc checkEq*[T: enum](suite: TestSuite, what: string, actual, expected: T) =
+  ## Assert that two enumerations are equal.
+  inc suite.total
+  if actual != expected:
+    suite.fail(what & ": expected " & $expected & " but got " & $actual)
+
 proc checkNe*(suite: TestSuite, what: string, actual, unexpected: string) =
   inc suite.total
   if actual == unexpected:

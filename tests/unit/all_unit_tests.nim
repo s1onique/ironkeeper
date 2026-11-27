@@ -4,15 +4,21 @@
 ## and returns a process exit code. The aggregator runs them all and fails
 ## if any of them fails.
 
+import boundedread_tests
 import cli_args_tests
 import config_semantics_tests
+import qualification_tests
+import schemapolicy_tests
 import strictjson_tests
 import validator_tests
 
 proc main(): int =
   var failures = 0
+  failures += boundedread_tests.runSuite()
   failures += cli_args_tests.runSuite()
   failures += config_semantics_tests.runSuite()
+  failures += qualification_tests.runSuite()
+  failures += schemapolicy_tests.runSuite()
   failures += strictjson_tests.runSuite()
   failures += validator_tests.runSuite()
   if failures == 0:

@@ -1,0 +1,41 @@
+[
+  {
+    "description": "a minimal integer schema",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "integer"
+    },
+    "tests": [
+      {
+        "description": "an integer is valid",
+        "data": 1,
+        "valid": true
+      },
+      {
+        "description": "a string is invalid",
+        "data": "not an integer",
+        "valid": false
+      }
+    ]
+  },
+  {
+    "description": "a schema with a keyword Ironkeeper does not support",
+    "schema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "integer",
+      "contentMediaType": "application/json"
+    },
+    "tests": [
+      {
+        "description": "an integer is valid under the unsupported keyword",
+        "data": 5,
+        "valid": true
+      },
+      {
+        "description": "a string is invalid under the unsupported keyword",
+        "data": "not an integer",
+        "valid": false
+      }
+    ]
+  }
+]

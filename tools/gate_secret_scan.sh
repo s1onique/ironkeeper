@@ -58,14 +58,67 @@ cat "$SCAN_LOG" || true
 echo "gate: scanner exit status = ${SCAN_STATUS}"
 
 # ---- the report must exist and be well formed ------------------------------
-# A missing or malformed report is a failure. It is *not* a clean scan.
+# The report is parsed as JSON, not grepped. A grep cannot tell a complete
+# JSON document from a truncated one, cannot tell an empty array from an
+# array with one member, and cannot tell a JSON array from an arbitrary
+# line that happens to start with `[`. The gate therefore requires:
+#
+#   * the report exists, is readable and is not empty;
+#   * it is a *complete* JSON document;
+#   * its root value is an array;
+#   * the array has length zero.
+#
+# Any nonempty array is a failure regardless of its member fields.
+#
+# The parse is performed by Python, which is already an available CI
+# dependency. Python prints the finding count on stdout and a diagnostic on
+# stderr; the diagnostic is rendered *after* the verdict is decided and can
+# therefore never change it.
 REPORT_ERROR=""
+FINDINGS=0
 if [ ! -f "$GITLEAKS_REPORT" ]; then
   REPORT_ERROR="the mandatory scan report was not produced: ${GITLEAKS_REPORT}"
-elif [ ! -s "$GITLEAKS_REPORT" ]; then
-  REPORT_ERROR="the mandatory scan report is empty: ${GITLEAKS_REPORT}"
-elif ! grep -q '^\s*\[' "$GITLEAKS_REPORT"; then
-  REPORT_ERROR="the mandatory scan report is malformed (not a JSON array): ${GITLEAKS_REPORT}"
+elif ! REPORT_OUT=$(python3 - "$GITLEAKS_REPORT" <<'PYEOF' 2>&1
+import json, sys
+
+path = sys.argv[1]
+try:
+    with open(path, 'rb') as handle:
+        raw = handle.read()
+except OSError:
+    print("the mandatory scan report could not be read: %s" % path)
+    sys.exit(1)
+
+if not raw.strip():
+    print("the mandatory scan report is empty: %s" % path)
+    sys.exit(1)
+
+try:
+    text = raw.decode('utf-8')
+except UnicodeDecodeError:
+    print("the mandatory scan report is not valid UTF-8: %s" % path)
+    sys.exit(1)
+
+try:
+    # `json.loads` rejects trailing content, so a truncated or padded
+    # document is not accepted.
+    document = json.loads(text)
+except ValueError:
+    print("the mandatory scan report is not a complete JSON document: %s" % path)
+    sys.exit(1)
+
+if not isinstance(document, list):
+    print("the mandatory scan report is not a JSON array: %s" % path)
+    sys.exit(1)
+
+print(len(document))
+PYEOF
+); then
+  REPORT_ERROR="${REPORT_OUT}"
+elif [ -z "$REPORT_OUT" ]; then
+  REPORT_ERROR="the mandatory scan report could not be inspected: ${GITLEAKS_REPORT}"
+else
+  FINDINGS="$REPORT_OUT"
 fi
 
 if [ -n "$REPORT_ERROR" ]; then
@@ -77,15 +130,28 @@ fi
 # The scanner signals findings with exit status 1 when --exit-code 1 is in
 # effect. A non-zero status that is not 1 is an execution failure, not a
 # finding, and is treated as a failure too.
-FINDINGS=$(grep -c '"RuleID"' "$GITLEAKS_REPORT" || true)
+#
+# The verdict is derived from the scanner's own exit status and from the
+# *parsed* length of the report. Nothing below this point can change it.
 if [ "$SCAN_STATUS" -eq 0 ] && [ "$FINDINGS" -eq 0 ]; then
   echo "gate: PASS secret-scan: no findings"
   exit 0
 fi
 
+# The scanner exited zero but the report is not an empty array. The report
+# wins: a scanner that claims a clean scan while recording findings has
+# failed, and the gate must not pass it.
+if [ "$SCAN_STATUS" -eq 0 ]; then
+  echo "gate: FAIL secret-scan: the scanner exited 0 but the report contains ${FINDINGS} finding(s)" >&2
+  head -c 4000 "$GITLEAKS_REPORT" >&2 || true
+  echo >&2
+  exit 1
+fi
+
 if [ "$SCAN_STATUS" -eq 1 ]; then
   echo "gate: FAIL secret-scan: the scanner reported ${FINDINGS} finding(s)" >&2
-  # The redacted findings are made available on failure.
+  # The redacted findings are made available on failure. This diagnostic
+  # rendering cannot change the verdict: the gate already failed.
   head -c 4000 "$GITLEAKS_REPORT" >&2 || true
   echo >&2
   exit 1

@@ -18,6 +18,8 @@ import std/[json, strutils, times, random]
 
 from ironkeeper/core/version import Version, ApplicationName
 from ironkeeper/core/errors import IrkErrorKind, codeFor
+from ironkeeper/contracts/outputbounds import boundMessage, boundLocation,
+  boundCode, boundDetail, MaxIssueCount
 
 type
   ExecutionState* = enum
@@ -115,12 +117,16 @@ proc newFinding*(code: string, severity: FindingSeverity, message: string,
           location: location, evidenceRefs: evidenceRefs)
 
 proc toJson*(f: Finding): JsonNode =
+  ## Render a finding as a JSON object.
+  ##
+  ## Every bounded field is shortened here, at the production boundary,
+  ## so that the rendered document always satisfies the report contract.
   var o = newJObject()
-  o["code"] = newJString(f.code)
+  o["code"] = newJString(boundCode(f.code))
   o["severity"] = newJString($f.severity)
-  o["message"] = newJString(f.message)
+  o["message"] = newJString(boundMessage(f.message))
   if f.location.len > 0:
-    o["location"] = newJString(f.location)
+    o["location"] = newJString(boundLocation(f.location))
   if f.evidenceRefs.len > 0:
     var arr = newJArray()
     for r in f.evidenceRefs:
@@ -166,20 +172,36 @@ proc toJson*(r: Report): JsonNode =
   ex["started_at"] = newJString(r.startedAt)
   ex["finished_at"] = newJString(r.finishedAt)
   if r.executionMessage.len > 0:
-    ex["message"] = newJString(r.executionMessage)
+    ex["message"] = newJString(boundMessage(r.executionMessage))
   root["execution"] = ex
 
   if r.hasAssessment:
     var a = newJObject()
     a["verdict"] = newJString($r.verdict)
-    a["summary"] = newJString(r.assessmentSummary)
+    a["summary"] = newJString(boundMessage(r.assessmentSummary))
     if r.policyRevision.len > 0:
       a["policy_revision"] = newJString(r.policyRevision)
     root["assessment"] = a
 
+  # The findings collection is bounded. When entries are dropped, a
+  # marker finding names how many, so that the document cannot be read
+  # as "there were no other findings".
   var findings = newJArray()
-  for f in r.findings:
-    findings.add f.toJson
+  let dropped = max(r.findings.len - MaxIssueCount, 0)
+  # When the collection is truncated, one slot is reserved for the
+  # marker, so that the rendered document never exceeds the contract's
+  # limit.
+  let kept = if dropped > 0: MaxIssueCount - 1 else: r.findings.len
+  for i in 0 ..< kept:
+    findings.add r.findings[i].toJson
+  if dropped > 0:
+    var marker = newJObject()
+    marker["code"] = newJString("findings.truncated")
+    marker["severity"] = newJString($fsWarning)
+    marker["message"] = newJString(
+      "the findings collection was truncated: " & $dropped &
+      " finding(s) were dropped")
+    findings.add marker
   root["findings"] = findings
 
   if r.evidence.len > 0:
@@ -223,8 +245,8 @@ proc errorDocument*(kind: IrkErrorKind, message: string,
   root["schema_version"] = newJInt(1)
   var e = newJObject()
   e["code"] = newJString(codeFor(kind))
-  e["message"] = newJString(message)
+  e["message"] = newJString(boundMessage(message))
   if detail.len > 0:
-    e["detail"] = newJString(detail)
+    e["detail"] = newJString(boundDetail(detail))
   root["error"] = e
   root
