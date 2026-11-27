@@ -120,6 +120,24 @@ proc runSuite*(): int =
   t.checkEq("a 4Kn device reports the correct byte capacity", capacity,
             "2000398934016")
 
+  # ---- the passive discovery runs no observation tool ---------------------
+  # The controlled `smartctl` records every execution in a marker file.
+  # A passive command must never create it.
+  let marker = getTempDir() / "ironkeeper-passive-marker"
+  removeFile(marker)
+  var markerEnv = storageEnv()
+  markerEnv["IRONKEEPER_TEST_TOOL_DIR"] = fixtureRoot() / "tools-marker"
+  markerEnv["IRONKEEPER_MARKER_FILE"] = marker
+  r = runBinary(@["inventory", "list", "--json"], markerEnv)
+  t.checkEq("the passive inventory succeeds", r.exitCode, 0)
+  t.check("the passive inventory runs no observation tool", not fileExists(marker))
+
+  r = runBinary(@["device", "inspect", "--wwn", "5000c500a1b2c3d4", "--json"],
+                markerEnv)
+  t.checkEq("the passive inspection succeeds", r.exitCode, 0)
+  t.check("the passive inspection runs no observation tool",
+          not fileExists(marker))
+
   # ---- the transport filter ----------------------------------------------
   r = runBinary(@["inventory", "list", "--transport", "nvme", "--json"],
                 storageEnv())

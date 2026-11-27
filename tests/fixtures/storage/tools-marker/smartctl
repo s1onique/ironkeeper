@@ -1,0 +1,7 @@
+#!/bin/sh
+# A `smartctl` that records that it was executed.
+#
+# The passive-discovery witness asserts that this file is never created by
+# a passive command.
+echo "executed $*" >> "${IRONKEEPER_MARKER_FILE:-/tmp/ironkeeper-marker}"
+exit 0

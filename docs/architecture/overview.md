@@ -14,6 +14,7 @@ It is authoritative. Where it disagrees with the code, the code is wrong.
 * [Contracts](#contracts)
 * [Strict JSON ingestion](#strict-json-ingestion)
 * [Numeric representation](#numeric-representation)
+* [Storage observation (M1)](storage-observation.md)
 * [Resource limits](#resource-limits)
 * [Error taxonomy and exit codes](#error-taxonomy-and-exit-codes)
 * [Toolchain](#toolchain)
@@ -71,7 +72,12 @@ device identity (WWN, serial, model, transport, topology). These are
 distinct observations and are recorded as such. Multipath aliases are
 reconciled before any physical-device operation.
 
-*Not present in M0.*
+*Present in M1:* `src/ironkeeper/storage/sysfs.nim`,
+`src/ironkeeper/storage/identity.nim`. See
+[storage-observation.md](storage-observation.md). The **handle-bound**
+identity authority is not implemented; the tools are executed by
+pathname, and the pre/post identity comparison narrows but does not
+close the race.
 
 ### 4. Protocol-specific adapters
 
@@ -84,7 +90,9 @@ Prefer proven external tooling over reimplementing protocol-specific
 hardware support. See
 [ADR-0008](adr/0008-external-tooling-and-native-boundaries.md).
 
-*Not present in M0.*
+*Present in M1:* `src/ironkeeper/storage/smartnorm.nim`,
+`src/ironkeeper/storage/scsicap.nim`, `src/ironkeeper/storage/sasphy.nim`.
+See [storage-observation.md](storage-observation.md).
 
 ### 5. Safety and ownership detection
 
@@ -414,6 +422,12 @@ implemented feature.
 | Maximum schema `$id` resolution | local only | validator adapter |
 | Maximum findings per report | 1024 | report schema |
 | Maximum evidence records per report | 4096 | report schema |
+| Maximum external document size | 16 MiB | external ingestion reader |
+| Maximum external nesting depth | 64 | external ingestion reader |
+| Per-command deadline | 30 s | bounded execution boundary |
+| Maximum tool stdout | 4 MiB | bounded execution boundary |
+| Maximum tool stderr | 256 KiB | bounded execution boundary |
+| Active interrogation concurrency | 1 | bounded execution boundary |
 
 These limits are part of the public contract. They are documented here so
 that a consumer can predict the outcome of a given input.
@@ -740,6 +754,14 @@ CI validates the repository schemas and the generated machine-readable
 output with a second, independent implementation (`check-jsonschema`).
 That cross-check is a CI gate, not the runtime: the shipped binary
 performs its own validation with the bundled validator.
+
+## Storage observation
+
+The read-only storage observation subsystem of milestone M1 is described
+in [storage-observation.md](storage-observation.md). The decisions that
+constrain future work are recorded in
+[ADR-0009](adr/0009-lossless-external-json-ingestion.md) and
+[ADR-0010](adr/0010-observation-identity-and-external-tool-execution.md).
 
 ## Dependency decisions
 

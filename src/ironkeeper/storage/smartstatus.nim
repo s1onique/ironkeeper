@@ -46,6 +46,8 @@ const
     ## The SMART log contains an old error record.
   SmartBitSelfTestLog* = 1 shl 6
     ## The SMART log contains a self-test log error record.
+  SmartBitOtherError* = 1 shl 7
+    ## Another, lower-level error occurred.
 
 type
   SmartExitBits* = object
@@ -59,6 +61,7 @@ type
     prefailThreshold*: bool
     oldErrorLog*: bool
     selfTestLog*: bool
+    otherError*: bool
 
 proc decodeSmartExit*(status: int): SmartExitBits =
   ## Decode the exit status of `smartctl`.
@@ -70,6 +73,7 @@ proc decodeSmartExit*(status: int): SmartExitBits =
   result.prefailThreshold = (status and SmartBitPrefailThreshold) != 0
   result.oldErrorLog = (status and SmartBitOldErrorLog) != 0
   result.selfTestLog = (status and SmartBitSelfTestLog) != 0
+  result.otherError = (status and SmartBitOtherError) != 0
 
 proc exitBitObservations*(bits: SmartExitBits, source: string,
                            collectedAt: string): seq[Observation] =
@@ -103,3 +107,5 @@ proc exitBitObservations*(bits: SmartExitBits, source: string,
       "the log contains an old error record")
   add("self_test_log", bits.selfTestLog,
       "the log contains a self-test log error record")
+  add("other_error", bits.otherError,
+      "another, lower-level error occurred")
