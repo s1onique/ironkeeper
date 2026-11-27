@@ -359,6 +359,23 @@ archive convention is:
   * Qualify less often. The qualification is unconditional today. The
     selective decision may only be given authority again after M1.
 
+### ACT-IRONKEEPER-M0-CLOSURE-01-AMENDMENT-01
+
+* **Status:** execution-complete, verdict `PARTIAL_FOUNDATION`
+* **Scope:** Correct the three remaining closure defects: the CI
+  toolchain bootstrap seam, the caller-controlled qualification
+  authority and the report semantic rule for a truncated findings
+  collection. Publish the observed optional-corpus results.
+* **Evidence:**
+  `.factory/evidence/ACT-IRONKEEPER-M0-CLOSURE-01-AMENDMENT-01/`
+* **Subject:** `f1b9ca0f4f690b9ad053d928aafba82d6ab1c5c3`
+* **Open:** the subject has no native CI run. One bounded authentication
+  preflight was performed and denied; the operator action is
+  `git push origin act/ironkeeper-foundation-01-amendment-03`.
+* **Next:** ACT-IRONKEEPER-READONLY-INVENTORY-01, once the native run of
+  the subject has reached a terminal conclusion with all four jobs
+  successful.
+
 ### ACT-IRONKEEPER-FOUNDATION-01-AMENDMENT-03
 
 * **Status:** execution-complete, qualification-partial

@@ -1,0 +1,179 @@
+ACT_ID: ACT-IRONKEEPER-M0-CLOSURE-01-AMENDMENT-01
+ENTRY_HEAD: 50f40dfac07d9f90b529596f9ea090d0558881c9
+SUBJECT_HEAD: f1b9ca0f4f690b9ad053d928aafba82d6ab1c5c3
+FINAL_HEAD: f1b9ca0f4f690b9ad053d928aafba82d6ab1c5c3
+# FINAL_HEAD is the head of the executable subject at the time this
+# receipt was written. The closure documents are added by the commit that
+# carries this file; that commit cannot contain its own hash, so the two
+# identities are recorded separately.
+
+BOOTSTRAP_INTEGRATION: |
+  Defect: the bootstrap is *executed*, so its exported PATH belongs to
+  the child process and does not survive the script. The workflow ran
+  the bootstrap and the toolchain verification in one shell, so the
+  verification found nothing on PATH and failed with exit 127.
+  Correction: tools/install_nim_toolchain.sh stays executable and keeps
+  writing the toolchain directory to $GITHUB_PATH. The verification is
+  now the separate step tools/verify_nim_toolchain.sh, which resolves
+  the intended directory from the last entry of $GITHUB_PATH and
+  requires both nim and nimble to resolve to it, so an unrelated
+  preinstalled compiler or package manager cannot satisfy the gate. The
+  official archive and digest pins are unchanged.
+  Witness: tools/gate_ci_bootstrap.sh exercises the production
+  invocation boundary - the script is executed, not sourced - and the
+  verification runs as the following workflow step does, through
+  GITHUB_PATH. 17 checks, all passing.
+
+EXACT_VERSION_CHECK: |
+  Defect: the version was compared with a shell glob, so a compiler that
+  merely starts with the pinned version passed. The review reproduced
+  expected 9.9.9 against reported 9.9.90 with a bootstrap exit of 0.
+  Correction: the version token is extracted from the compiler's own
+  output and compared as a whole, in both the bootstrap and the
+  verification step.
+  Witnesses: a correct pinned version succeeds; a prefix-matching but
+  incorrect version (9.9.90 against 9.9.9) fails the bootstrap and
+  names the mismatch; a missing compiler fails; a missing nimble fails
+  the toolchain verification; and the following workflow step resolves
+  the intended toolchain.
+
+QUALIFICATION_AUTHORITY: |
+  Defect: the qualification read IRK_QUALIFY_EXPECTED_INPUTS_DIGEST and
+  IRK_QUALIFY_AUTHORITATIVE, so a caller could substitute corpus
+  contents and still obtain an authoritative classification.
+  Correction: the authority is decided by the verification and by
+  nothing else. Only a successful comparison against the
+  repository-pinned digest produces qualification_authoritative=true.
+  A caller-supplied digest produces a development-only result; there is
+  no environment variable that can promote it, and the script no longer
+  reads an authority assertion at all. The production CI gate sets
+  IRK_QUALIFY_REQUIRE_AUTHORITATIVE=1 and refuses a non-authoritative
+  result.
+  Witnesses, in tools/gate_remote_schema_integrity.sh: a modified input
+  with the repository pin is refused and is not classified as
+  authoritative; a modified input with a caller-supplied matching digest
+  is non-authoritative and classified as a development override; a
+  caller cannot promote that result; and the production gate refuses
+  it. 19 checks, all passing.
+
+EXTERNAL_TRUNCATED_REPORT_SEMANTICS: |
+  Defect: the closure receipt claimed that an external report pairing
+  PASS with a truncated findings collection is rejected, but the
+  production semantic validator held no such rule.
+  Correction: src/ironkeeper/contracts/reportsemantics.nim rejects a
+  report that carries the findings.truncated marker and claims a PASS
+  assessment, with the code report.pass_with_truncated_findings. The
+  producer-side downgrade and the truncation accounting are preserved.
+  Witness: the actual compiled `report validate --json` command is
+  exercised with a structurally valid synthetic report - a truncated
+  report with PASS is rejected as a semantic failure (exit 6) and the
+  reason is named; the same report with WARN is accepted. The witness
+  was shown to be non-vacuous: with the rule disabled the integration
+  suite fails, and with the rule restored it passes.
+
+LOCAL_GATES: |
+  Executed on the executable subject, on the local host (Darwin, arm64):
+    tools/gate_build_test.sh      gate: PASS build-test
+    tools/gate_schema_drift.sh    gate: PASS schema-drift
+    tools/gate_fault_injection.sh RESULT: PASS - 21 of 21 injected faults detected
+    tools/gate_ci_bootstrap.sh    RESULT: PASS - 17 of 17 checks
+    tools/gate_requalification_decision.sh RESULT: PASS - 21 of 21 checks
+    tools/gate_remote_schema_integrity.sh   RESULT: PASS - 19 of 19 checks
+  The complete gates were executed once on the final subject.
+
+LOCAL_QUALIFICATION: |
+  tools/qualify_validator.sh --suite <pinned checkout> completed with
+  exit status 0:
+    validator_commit=a936862556f24fde475059c560c1a13f00291457
+    validator_tree_sha256=323f47f85dba93a0f96bd3ffd6ec964abe2663e260c988596d7a49a0d68573a8
+    suite_revision=245a45abc90190c0bff04d97e6d2b541b4bb9f12
+    inputs_digest_sha256=45bf30e6bc639547d4b7a75fe152fce5451e523fa976ff82f0576e9c6fcd1322
+    qualification_authoritative=true
+    qualification_classification=pinned-verified
+    inputs_digest_verified=true
+    remote_schema_files=79
+    raw_verdict=PASS  adapter_verdict=PASS  product_verdict=PASS
+    witness_failures=0
+
+RAW_MANDATORY_RESULTS: |
+  1300 mandatory cases, 1300 passed, 0 failed. denominator = 1300.
+ADAPTER_SUPPORTED_RESULTS: |
+  949 in-subset mandatory cases, 949 passed, 0 failed. denominator = 949.
+RAW_OPTIONAL_RESULTS: |
+  The optional corpus was observed, and its observed results are
+  published separately from the mandatory ones:
+    raw_optional_observed_total=1074
+    raw_optional_observed_passed=540
+    raw_optional_observed_failed=525
+    raw_optional_observed_excluded=9
+  The 525 wrong optional answers are reported as wrong. They are not
+  described as measured successful conformance, and they do not block
+  the product qualification: the optional corpus is outside the
+  required subset.
+ADAPTER_OPTIONAL_RESULTS: |
+    adapter_optional_observed_total=1074
+    adapter_optional_observed_passed=498
+    adapter_optional_observed_failed=508
+    adapter_optional_observed_excluded=68
+
+CI_HEAD: NONE - the subject has not been pushed
+CI_RUN_ID: NONE - the subject has not been pushed
+CI_CONCLUSION: NONE - the subject has not been pushed
+LINUX_AMD64_NATIVE: UNMET - see OPEN_FINDINGS
+LINUX_ARM64_NATIVE: UNMET - see OPEN_FINDINGS
+SECRET_SCAN: UNMET - see OPEN_FINDINGS
+AUTHORITATIVE_VALIDATOR_QUALIFICATION: |
+  The qualification executed and produced an authoritative result
+  (qualification_authoritative=true, classification=pinned-verified) on
+  the executable subject, on the local host. The native Linux amd64
+  execution of the same step is UNMET, because the subject has not been
+  pushed.
+
+POST_QUALIFICATION_DIFF: |
+  The difference between the entry commit and the subject touches the CI
+  workflow, the toolchain bootstrap and its verification, the
+  qualification script and its authority decision, the report semantic
+  layer, the qualification harness and its witnesses, and the board.
+  Every one of those paths is a qualification-relevant path, so the
+  requalification decision for the subject is "needed". The
+  qualification remains unconditional: no selective skipping was
+  introduced.
+PATCH_HYGIENE: |
+  Clean. No whitespace errors (git diff --check over the whole range),
+  no tracked build output, no generated qualification record, no
+  credentials, no device identifiers. The MIT licence is preserved and
+  unmodified.
+TRACKED_DIRT: none
+HARDWARE_OPERATIONS: none - no device was read, written or probed
+OPEN_FINDINGS: |
+  1. The subject has no native CI run. One bounded authentication
+     preflight was performed, as the amendment permits:
+         git push --dry-run origin act/ironkeeper-foundation-01-amendment-03
+     and it failed with
+         git@github.com: Permission denied (publickey).
+         fatal: Could not read from remote repository.
+     No further authentication attempt was made, and no credential
+     store, keychain, private key or unrelated repository was searched.
+     The acceptance gates that depend on a native run - C08 (native
+     Linux amd64 build and tests), C09 (native Linux arm64 build and
+     tests), C10 (secret scan) and the native part of C11 - are unmet.
+  2. Operator action, exactly:
+
+         git push origin act/ironkeeper-foundation-01-amendment-03
+
+     The push triggers the native Linux amd64 and arm64 build-and-test
+     jobs, the secret-scan gate and the validator-qualification job.
+     The qualification step executes unconditionally and the gate
+     requires an authoritative qualification, so a green job cannot hide
+     a skipped or development-only qualification.
+  3. The three nonblocking follow-ups are recorded on the board: an
+     actual failing-diff injection for the selective requalification
+     decision; collision-safe UTF-8 handling of arbitrary object keys
+     before external telemetry ingestion; and further qualification
+     optimisation only after M1.
+EPIC_BOARD_STATUS: |
+  EPICS.md records the amendment, the subject head, the open finding and
+  the operator action, and carries the three nonblocking follow-ups. M0
+  remains acceptance-pending.
+FINAL_VERDICT: PARTIAL_FOUNDATION
+NEXT_RECOMMENDED_ACT: ACT-IRONKEEPER-READONLY-INVENTORY-01
