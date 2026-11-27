@@ -164,11 +164,28 @@ PROXMOX_MODIFICATIONS: NONE
 TRACKED_DIRT: >
   None at the receipt commit. The working tree is clean.
 HELD_OBSERVATIONS: >
-  One background command was launched and cancelled without its result being
-  consumed: a recursive `find` over the filesystem that was searching for a
-  local copy of the pinned validator. It was cancelled when a copy was found
-  at /tmp/jschema. It produced no observation and no conclusion. No other
-  background command was launched.
+  Four background command identifiers were held by the runtime:
+  cmd_mwy8xaptnxxeipwy, cmd_mwy90vne2jy3fczn, cmd_mwy91zneoqhprcfs and
+  cmd_mwy9pnynvwkd1ca4. All four were reconnaissance commands of the early
+  session, and all four are classified here:
+
+  * cmd_mwy91zneoqhprcfs and cmd_mwy9pnynvwkd1ca4 were recursive searches
+    over the filesystem for the pinned validator and for the POSIX module.
+    Both were **cancelled** by an explicit `cancel_command` once a copy was
+    found at /tmp/jschema. They produced no terminal observation and no
+    conclusion. No conclusion in this amendment rests on them.
+  * cmd_mwy8xaptnxxeipwy and cmd_mwy90vne2jy3fczn were Nim compiler probes
+    used to establish the exact POSIX and JSON library API. Their outputs
+    were observed inline when they ran; they established the API surface
+    used by src/ironkeeper/json/boundedread.nim and
+    src/ironkeeper/qualification/jsonvalue.nim.
+
+  At the time of the completion request the four identifiers were no longer
+  registered with the runtime, so no further terminal result could be
+  retrieved for them. Every conclusion that rests on them is independently
+  re-verified by the commands recorded in `green-witnesses.md`, and the
+  compiler probes in particular are superseded by the production build and
+  the test suites.
 POST_QUALIFICATION_DIFF: >
   The evidence bundle and the epic board entry are the only changes after the
   subject commit. No executable source, no schema, no gate script and no
