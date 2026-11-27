@@ -204,6 +204,8 @@ commit. No run is identified at a commit it did not execute.
 | **45912607978** | **`2bb64bdd`** | **failure** | the CI negative witness |
 | **45915464716** | **`c4fee46d`** | **success** | the final head, evidence-only diff |
 | **45915748084** | **`bc3d425a`** | **success** | the final head, after the last evidence commit |
+| **45915992570** | **`5b40272a`** | **success** | the final head, after the ledger update |
+| **45916287156** | **`bb3e19b5`** | **success** | the final head, after the held-observation classification |
 
 ### The run on the final head
 
