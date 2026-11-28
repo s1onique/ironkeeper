@@ -30,11 +30,13 @@ arm64 execution.
 | `46141164447` | `298719b` | success | the qualification of the head `298719b`; it changes only the evidence documents |
 | `46141549489` | `11824b7` | success | the qualification of the head `11824b7`; the artefact digests below are the ones of this run |
 | `46142142422` | `7cb1f4c` | success | the qualification of the head `7cb1f4c`, the commit that carried this receipt |
+| `46142565255` | `9a8ac6c` | success | the qualification of the head `9a8ac6c`, the commit that carried this receipt |
 
 The table lists the run of every head of the branch up to and including
 the head that carried this receipt. A later commit of the branch changes
 only the evidence documents of this directory, and its own run is the
-confirmation of the branch.
+confirmation of the branch; that commit is the last one of this ACT, and
+it changes no production code, no test and no gate.
 
 Every failure above was **reproduced locally** before it was repaired,
 and every repair was verified with the pinned toolchain (Nim 2.4.2) and
