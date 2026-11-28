@@ -23,7 +23,8 @@ arm64 execution.
 | `46131413505` | `96dd3ad` | success | the qualification of the evidence head `96dd3ad` |
 | `46131487334` | `3fc7102` | success | the qualification of the head `3fc7102` |
 | `46138922173` | `8742c55` | success | the qualification of the head `8742c55` |
-| `46139486559` | `a4f76ea` | success | the qualification of the final head `a4f76ea`; the artefact digests below are the ones of this run |
+| `46139486559` | `a4f76ea` | success | the qualification of the head `a4f76ea` |
+| `46139831233` | `8a02c07` | success | the qualification of the final head `8a02c07`; the artefact digests below are the ones of this run |
 
 Every failure above was **reproduced locally** before it was repaired,
 and every repair was verified with the pinned toolchain (Nim 2.4.2) and
@@ -61,11 +62,11 @@ The digests of the published artefacts of the final run are:
 
 | Artefact | Digest |
 |---|---|
-| `build-evidence-amd64` | `sha256:1dc8fa40d1060990c91acfa3753d61cd9394cecb853d4b32da8dc1ddc8d01c9e` |
-| `build-evidence-arm64` | `sha256:752d83016239ab35916073583d8fda8f92f33a06231dd037d613f7da1edb94b7` |
+| `build-evidence-amd64` | `sha256:2332b8eeaaae9d0a9b9dc522e3d6f13d61fd26d1191e326b8b033e6ccbe5b986` |
+| `build-evidence-arm64` | `sha256:353ecbcdac7887cc68a28e4835118816e9fe3cdf6c97d5bb7ecefd879523dd29` |
 
-These are the digests of the artefacts of the run `46139486559`, which is
-the run of the final qualified head `a4f76ea`. The commits that follow
+These are the digests of the artefacts of the run `46139831233`, which is
+the run of the final qualified head `8a02c07`. The commits that follow
 that head on the branch change only the evidence documents of this
 directory, so the executable source is the one that this run compiled.
 

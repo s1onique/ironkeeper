@@ -2,17 +2,17 @@ ACT_ID: ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01
 ENTRY_HEAD: 965940647a123bedb25dd609019208b4c84a967e
 SUBJECT_HEAD: 0f88baefbba610bb492ad4fe9fa7cef701941ab2 - the last
   commit that changed the production code under src/
-CI_HEAD: a4f76ea25c9a26923eee031eaea7536b365167a4 - the head of the
-  green native run 46139486559; the production executable source is
+CI_HEAD: 8a02c07bcfb45309815a51a7db6ed547aabb0c39 - the head of the
+  green native run 46139831233; the production executable source is
   unchanged since 0f88bae, because every commit of the branch after that
   one changes only the evidence documents of this directory and the
   documentation of the receipt
-FINAL_HEAD: a4f76ea25c9a26923eee031eaea7536b365167a4 - the branch head
-  whose native run 46139486559 is recorded below. The commit that carries
-  this receipt is a metadata-only successor of that head, and it changes no
-  production code, no test and no gate, so the executable source that the
-  recorded run qualified is the executable source of the final branch head
-  as well
+FINAL_HEAD: 8a02c07bcfb45309815a51a7db6ed547aabb0c39 - the branch head
+  whose native run 46139831233 is recorded below. Every commit of the
+  branch after that head changes only the evidence documents of this
+  directory and this receipt, and changes no production code, no test and
+  no gate, so the executable source that the recorded run qualified is the
+  executable source of the final branch head as well
 
 PRODUCTION_TEST_SEAM_ISOLATION: VERIFIED - the tool and the discovery-root
   seams are a compile-time property; the production binary does not read
@@ -67,22 +67,22 @@ GREEN_WITNESSES: 42 production-path checks in the unit, contract and
 NON_VACUITY: 11 reversals, each of which makes its witness fail and is
   then restored - non-vacuity.md
 
-LINUX_AMD64_NATIVE: PASS - run 46139486559, job build and test (amd64)
-LINUX_ARM64_NATIVE: PASS - run 46139486559, job build and test (arm64)
-CI_RUN_ID: 46139486559
+LINUX_AMD64_NATIVE: PASS - run 46139831233, job build and test (amd64)
+LINUX_ARM64_NATIVE: PASS - run 46139831233, job build and test (arm64)
+CI_RUN_ID: 46139831233
 CI_CONCLUSION: SUCCESS - validator qualification and secret scan also
   passed
 VALIDATOR_QUALIFICATION: PASS - the job validator qualification of the
   same run
 SECRET_SCAN: PASS - the job secret scan of the same run
 
-EXECUTABLE_ARTIFACT: build/ironkeeper of the native run 46139486559 (the
+EXECUTABLE_ARTIFACT: build/ironkeeper of the native run 46139831233 (the
   production variant); the test-enabled variant is published beside it and
   is never used for a hardware qualification
 EXECUTABLE_SHA256: the digests of the published artefacts are
-  sha256:1dc8fa40d1060990c91acfa3753d61cd9394cecb853d4b32da8dc1ddc8d01c9e
+  sha256:2332b8eeaaae9d0a9b9dc522e3d6f13d61fd26d1191e326b8b033e6ccbe5b986
   (build-evidence-amd64) and
-  sha256:752d83016239ab35916073583d8fda8f92f33a06231dd037d613f7da1edb94b7
+  sha256:353ecbcdac7887cc68a28e4835118816e9fe3cdf6c97d5bb7ecefd879523dd29
   (build-evidence-arm64); the digest of the executable itself is recorded
   by the run in executable-identity.txt
 LIVE_SAS_REQUALIFICATION: PENDING - the operator procedure is in
