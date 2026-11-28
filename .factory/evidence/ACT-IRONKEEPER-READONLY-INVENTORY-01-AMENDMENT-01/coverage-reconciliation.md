@@ -6,7 +6,7 @@
 |---|---|
 | Executable subject | `build/ironkeeper` (production variant) and `build/ironkeeper-testing` (test-enabled variant) |
 | Source revision of the subject | `0f88baefbba610bb492ad4fe9fa7cef701941ab2` (the last commit that changed the production code) |
-| Qualified head | `8742c5555a1fc200c5ff0b1a49ee1161ac3c2bba` (the head of the green native run `46138922173`) |
+| Qualified head | `a4f76ea25c9a26923eee031eaea7536b365167a4` (the head of the green native run `46139486559`) |
 | Build toolchain | Nim 2.4.2 (the pinned version), `--mm:orc`, release mode (`-d:release --opt:speed`) |
 | Local execution environment | macOS arm64 - **not** the qualified native environment |
 | Authoritative executable | the native CI artefact `build/ironkeeper` of the qualified head; see `native-ci.md` |
@@ -25,14 +25,14 @@ on the repository that this agent does not have.
 | Entry HEAD | `965940647a123bedb25dd609019208b4c84a967e` |
 | Subject HEAD (the last commit that changed the production code) | `0f88baefbba610bb492ad4fe9fa7cef701941ab2` |
 | Final HEAD (the last commit of the branch) | recorded in `exit-receipt.yaml`; the commit that follows this reconciliation alters only the evidence documents of this directory |
-| CI head | `8742c5555a1fc200c5ff0b1a49ee1161ac3c2bba` |
-| CI run | `46138922173` |
+| CI head | `a4f76ea25c9a26923eee031eaea7536b365167a4` |
+| CI run | `46139486559` |
 | Live-tested source revision | **none**: no live execution by the development agent was authorised |
 | Build and runtime dependencies on the storage host | **unchanged**: the amendment adds no dependency and installs nothing. The `libpcre3` runtime dependency of the binary is pre-existing and is now recorded as a host prerequisite of the operator procedure |
 | Authority for a host modification | **none**: no host modification was made |
 
 The production executable source is the source of the CI-qualified head
-`8742c5555a1fc200c5ff0b1a49ee1161ac3c2bba`: the commits that follow that
+`a4f76ea25c9a26923eee031eaea7536b365167a4`: the commits that follow that
 head on the branch change only the evidence documents of this directory
 and the documentation of the receipt, so the production code that the run
 compiled is byte-for-byte the production code of that head. The commit
