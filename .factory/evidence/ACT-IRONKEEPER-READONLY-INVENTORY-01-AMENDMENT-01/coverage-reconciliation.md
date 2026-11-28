@@ -24,7 +24,7 @@ on the repository that this agent does not have.
 |---|---|
 | Entry HEAD | `965940647a123bedb25dd609019208b4c84a967e` |
 | Subject HEAD (the last commit that changed the production code) | `0f88baefbba610bb492ad4fe9fa7cef701941ab2` |
-| Final HEAD (the last commit of the branch) | recorded in `exit-receipt.yaml`; the commit that follows this reconciliation alters only the evidence documents of this directory |
+| Final HEAD (the last commit of the branch) | the branch head that carries this receipt; every commit after the CI-qualified head alters only the evidence documents of this directory |
 | CI head | `8a02c07bcfb45309815a51a7db6ed547aabb0c39` |
 | CI run | `46139831233` |
 | Live-tested source revision | **none**: no live execution by the development agent was authorised |
@@ -37,7 +37,8 @@ head on the branch change only the evidence documents of this directory
 and the documentation of the receipt, so the production code that the run
 compiled is byte-for-byte the production code of that head. The commit
 that carries this reconciliation is such a commit; its own native run is
-the final confirmation of the branch, not a new subject.
+the final confirmation of the branch, not a new subject. Every run of
+every head of the branch is listed in `native-ci.md`.
 
 ## What was and was not tested
 

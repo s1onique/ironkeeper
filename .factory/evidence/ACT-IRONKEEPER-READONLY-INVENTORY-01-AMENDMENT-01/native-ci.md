@@ -25,6 +25,7 @@ arm64 execution.
 | `46138922173` | `8742c55` | success | the qualification of the head `8742c55` |
 | `46139486559` | `a4f76ea` | success | the qualification of the head `a4f76ea` |
 | `46139831233` | `8a02c07` | success | the qualification of the final head `8a02c07`; the artefact digests below are the ones of this run |
+| `46140282854` | `bf18395` | success | the qualification of the head `bf18395`; it changes only the evidence documents |
 
 Every failure above was **reproduced locally** before it was repaired,
 and every repair was verified with the pinned toolchain (Nim 2.4.2) and
