@@ -5,8 +5,8 @@
 | Item | Value |
 |---|---|
 | Executable subject | `build/ironkeeper` (production variant) and `build/ironkeeper-testing` (test-enabled variant) |
-| Source revision of the subject | `489bafc289c37fcf270f75857ef646411a56a38e` (the last commit that changed the production code) |
-| Qualified head | `489bafc289c37fcf270f75857ef646411a56a38e` (the head of the green native run `46131011331`) |
+| Source revision of the subject | `0f88baefbba610bb492ad4fe9fa7cef701941ab2` (the last commit that changed the production code) |
+| Qualified head | `3fc7102174a3651ea923a883c9170ca04e4faf69` (the head of the green native run `46131487334`) |
 | Build toolchain | Nim 2.4.2 (the pinned version), `--mm:orc`, release mode (`-d:release --opt:speed`) |
 | Local execution environment | macOS arm64 - **not** the qualified native environment |
 | Authoritative executable | the native CI artefact `build/ironkeeper` of the qualified head; see `native-ci.md` |
@@ -23,13 +23,21 @@ on the repository that this agent does not have.
 | Item | Value |
 |---|---|
 | Entry HEAD | `965940647a123bedb25dd609019208b4c84a967e` |
-| Subject HEAD (the repair commit) | `489bafc289c37fcf270f75857ef646411a56a38e` |
-| Final HEAD (the last commit of the branch) | recorded in `exit-receipt.yaml` |
-| CI head | `489bafc289c37fcf270f75857ef646411a56a38e` |
-| CI run | `46131011331` |
+| Subject HEAD (the last commit that changed the production code) | `0f88baefbba610bb492ad4fe9fa7cef701941ab2` |
+| Final HEAD (the last commit of the branch) | recorded in `exit-receipt.yaml`; the commit that follows this reconciliation alters only the evidence documents of this directory |
+| CI head | `3fc7102174a3651ea923a883c9170ca04e4faf69` |
+| CI run | `46131487334` |
 | Live-tested source revision | **none**: no live execution by the development agent was authorised |
 | Build and runtime dependencies on the storage host | **unchanged**: the amendment adds no dependency and installs nothing. The `libpcre3` runtime dependency of the binary is pre-existing and is now recorded as a host prerequisite of the operator procedure |
 | Authority for a host modification | **none**: no host modification was made |
+
+The production executable source is the source of the CI-qualified head
+`3fc7102174a3651ea923a883c9170ca04e4faf69`: the commits that follow that
+head on the branch change only the evidence documents of this directory
+and the documentation of the receipt, so the production code that the run
+compiled is byte-for-byte the production code of that head. The commit
+that carries this reconciliation is such a commit; its own native run is
+the final confirmation of the branch, not a new subject.
 
 ## What was and was not tested
 

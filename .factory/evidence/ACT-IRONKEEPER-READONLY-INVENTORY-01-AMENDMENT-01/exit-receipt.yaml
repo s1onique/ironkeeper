@@ -1,8 +1,15 @@
 ACT_ID: ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01
 ENTRY_HEAD: 965940647a123bedb25dd609019208b4c84a967e
-SUBJECT_HEAD: 489bafc289c37fcf270f75857ef646411a56a38e
-CI_HEAD: 489bafc289c37fcf270f75857ef646411a56a38e
-FINAL_HEAD: 489bafc289c37fcf270f75857ef646411a56a38e
+SUBJECT_HEAD: 0f88baefbba610bb492ad4fe9fa7cef701941ab2 - the last
+  commit that changed the production code under src/
+CI_HEAD: 3fc7102174a3651ea923a883c9170ca04e4faf69 - the head of the
+  green native run 46131487334; the later commits of the branch change
+  only the evidence documents of this directory, so the production
+  executable source is unchanged since this head
+FINAL_HEAD: 3fc7102174a3651ea923a883c9170ca04e4faf69 - the branch head
+  that the native run 46131487334 qualified; the commit that follows this
+  reconciliation changes only the evidence documents and the receipt, and
+  its own run is the final confirmation
 
 PRODUCTION_TEST_SEAM_ISOLATION: VERIFIED - the tool and the discovery-root
   seams are a compile-time property; the production binary does not read
@@ -57,22 +64,22 @@ GREEN_WITNESSES: 42 production-path checks in the unit, contract and
 NON_VACUITY: 11 reversals, each of which makes its witness fail and is
   then restored - non-vacuity.md
 
-LINUX_AMD64_NATIVE: PASS - run 46131011331, job build and test (amd64)
-LINUX_ARM64_NATIVE: PASS - run 46131011331, job build and test (arm64)
-CI_RUN_ID: 46131011331
+LINUX_AMD64_NATIVE: PASS - run 46131487334, job build and test (amd64)
+LINUX_ARM64_NATIVE: PASS - run 46131487334, job build and test (arm64)
+CI_RUN_ID: 46131487334
 CI_CONCLUSION: SUCCESS - validator qualification and secret scan also
   passed
 VALIDATOR_QUALIFICATION: PASS - the job validator qualification of the
   same run
 SECRET_SCAN: PASS - the job secret scan of the same run
 
-EXECUTABLE_ARTIFACT: build/ironkeeper of the native run 46131011331 (the
+EXECUTABLE_ARTIFACT: build/ironkeeper of the native run 46131487334 (the
   production variant); the test-enabled variant is published beside it and
   is never used for a hardware qualification
 EXECUTABLE_SHA256: the digests of the published artefacts are
-  sha256:b4f92635f190d8bc4fa86b3623c553a3ee3a65cdd6dab64916c5e04c4f6419a3
+  sha256:37e20952655a537f47a07724c39b4422ebc8193d2e1a9d94e8ee238cdeadb6d1
   (build-evidence-amd64) and
-  sha256:66cdcc2c98c1239974c935e871d73e332328a2dc659a30580a7cd3f6217d8bc7
+  sha256:13bc65a79bb3c030a3232433fec9c6837b2238a183d089e7d85c8f4b34e4cba2
   (build-evidence-arm64); the digest of the executable itself is recorded
   by the run in executable-identity.txt
 LIVE_SAS_REQUALIFICATION: PENDING - the operator procedure is in

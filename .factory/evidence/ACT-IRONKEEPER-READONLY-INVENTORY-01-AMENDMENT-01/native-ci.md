@@ -19,7 +19,9 @@ arm64 execution.
 | `46020231721` | `7849527` | failure | The non-vacuity gate failed: the mutations rebuilt the shipped binaries from a mutated source, and the later gates of the job consumed those binaries. |
 | `46021642146` | `b29840b` | failure | The non-vacuity gate failed again, and the reason could not be read: the job log of a failed run needs administrative rights. The gate now reports the reason of every failing phase as a workflow annotation, which is part of the public check-run record. |
 | `46031059134` | `b501bb6` | failure | The annotation identified the phase: the pipe stream identity witness did not detect its mutation. The witness closed the standard output and wrote to the standard error immediately afterwards, so whether the defect was observable depended on a race between the child and the parent. The witness now delays the write, which makes the ordering deterministic. |
-| the final run | the final subject | see the exit receipt | the qualification of the final subject |
+| `46131011331` | `489bafc` | success | the qualification of the repair head `489bafc` |
+| `46131413505` | `96dd3ad` | success | the qualification of the evidence head `96dd3ad` |
+| `46131487334` | `3fc7102` | success | the qualification of the final head `3fc7102`; the artefact digests below are the ones of this run |
 
 Every failure above was **reproduced locally** before it was repaired,
 and every repair was verified with the pinned toolchain (Nim 2.4.2) and
@@ -57,8 +59,11 @@ The digests of the published artefacts of the final run are:
 
 | Artefact | Digest |
 |---|---|
-| `build-evidence-amd64` | `sha256:b4f92635f190d8bc4fa86b3623c553a3ee3a65cdd6dab64916c5e04c4f6419a3` |
-| `build-evidence-arm64` | `sha256:66cdcc2c98c1239974c935e871d73e332328a2dc659a30580a7cd3f6217d8bc7` |
+| `build-evidence-amd64` | `sha256:37e20952655a537f47a07724c39b4422ebc8193d2e1a9d94e8ee238cdeadb6d1` |
+| `build-evidence-arm64` | `sha256:13bc65a79bb3c030a3232433fec9c6837b2238a183d089e7d85c8f4b34e4cba2` |
+
+These are the digests of the artefacts of the run `46131487334`, which
+is the run of the final qualified head `3fc7102`.
 
 ## The local runs
 
