@@ -44,3 +44,33 @@ gate: PASS storage-non-vacuity
 The gate restores every mutated file from its saved copy and reruns the
 suite at the end, so it never leaves a deliberately broken implementation
 behind.
+
+## The witness must be deterministic
+
+A witness that detects its defect only sometimes is not a witness. The
+native run `46031059134` showed exactly that: the pipe stream identity
+phase reported that the mutation did not make the suite fail.
+
+The cause was a race in the **witness**, not in the implementation. The
+witness closed the standard output and wrote to the standard error
+immediately afterwards. The defect that the witness pins down is only
+observable while the standard error is the *only* stream left in the
+poll descriptor array, so the write has to arrive strictly after the
+parent observed the end of file. Whether that happened depended on the
+scheduling of the child against the parent, and on a loaded runner the
+mutation went unnoticed.
+
+The witness now delays the write, which fixes the ordering. The
+determinism was measured against the **mutated** implementation, where
+the witness must fail:
+
+| Implementation | Runs | The witness failed |
+|---|---|---|
+| the mutated one, the delay in place | 15 | 15 |
+| the restored one | the gate | the suite is green |
+
+The reason of a failing phase is reported as a workflow annotation as
+well as in the gate log. The annotation is part of the public
+check-run record, so the failure of a native run is diagnosable without
+the administrative rights that the job log requires.
+

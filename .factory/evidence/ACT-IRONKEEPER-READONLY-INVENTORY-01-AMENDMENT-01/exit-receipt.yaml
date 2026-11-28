@@ -1,8 +1,8 @@
 ACT_ID: ACT-IRONKEEPER-READONLY-INVENTORY-01-AMENDMENT-01
 ENTRY_HEAD: 965940647a123bedb25dd609019208b4c84a967e
-SUBJECT_HEAD: 0f88baefbba610bb492ad4fe9fa7cef701941ab2
-CI_HEAD: 829b56f5ff764b509065e62dba9a5a17300d83fc
-FINAL_HEAD: 829b56f5ff764b509065e62dba9a5a17300d83fc
+SUBJECT_HEAD: 19ecc6a4d790698c513d96f0ffb782ee8a1ab8b6
+CI_HEAD: 19ecc6a4d790698c513d96f0ffb782ee8a1ab8b6
+FINAL_HEAD: 19ecc6a4d790698c513d96f0ffb782ee8a1ab8b6
 
 PRODUCTION_TEST_SEAM_ISOLATION: VERIFIED - the tool and the discovery-root
   seams are a compile-time property; the production binary does not read
@@ -57,24 +57,29 @@ GREEN_WITNESSES: 42 production-path checks in the unit, contract and
 NON_VACUITY: 11 reversals, each of which makes its witness fail and is
   then restored - non-vacuity.md
 
-LINUX_AMD64_NATIVE: PASS - run 46019409996, job build and test (amd64)
-LINUX_ARM64_NATIVE: PASS - run 46019409996, job build and test (arm64)
-CI_RUN_ID: 46019409996
+LINUX_AMD64_NATIVE: PASS - run 46130538417, job build and test (amd64)
+LINUX_ARM64_NATIVE: PASS - run 46130538417, job build and test (arm64)
+CI_RUN_ID: 46130538417
 CI_CONCLUSION: SUCCESS - validator qualification and secret scan also
   passed
 VALIDATOR_QUALIFICATION: PASS - the job validator qualification of the
   same run
 SECRET_SCAN: PASS - the job secret scan of the same run
 
-EXECUTABLE_ARTIFACT: build/ironkeeper of the native run 46019409996 (the
+EXECUTABLE_ARTIFACT: build/ironkeeper of the native run 46130538417 (the
   production variant); the test-enabled variant is published beside it and
   is never used for a hardware qualification
-EXECUTABLE_SHA256: recorded by the run in executable-identity.txt; the
-  artefact was not retrieved by the development agent, because the
-  retrieval needs administrative rights on the repository
+EXECUTABLE_SHA256: the digests of the published artefacts are
+  sha256:800a074a3c6f0c11862973b0329887e9ade59ef29977c0156dc921b8d457de1e
+  (build-evidence-amd64) and
+  sha256:0bbfa5513b0b59edcdd59ddf55965644a50b4ed2c428d06e6a7acce4065ca7cc
+  (build-evidence-arm64); the digest of the executable itself is recorded
+  by the run in executable-identity.txt
 LIVE_SAS_REQUALIFICATION: PENDING - the operator procedure is in
   live-requalification.md; no live execution by the development agent was
-  authorised
+  authorised. The procedure names the PCRE1 runtime library as a host
+  prerequisite, because the binary loads it at start-up and a host without
+  it cannot run the binary at all
 HOST_MODIFICATIONS: NONE - nothing was installed and nothing was changed on
   the storage host
 HARDWARE_OPERATIONS: NONE - no physical device was opened and no

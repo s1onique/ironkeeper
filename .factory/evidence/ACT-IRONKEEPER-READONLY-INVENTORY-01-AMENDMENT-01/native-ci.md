@@ -16,6 +16,9 @@ arm64 execution.
 | `46015982726` | `0f88bae` | failure | The build and the test step passed; the non-vacuity gate exceeded the time budget of the job. |
 | `46017344205` | `68b4a84` | failure | The build and the test step and the non-vacuity gate passed; the independent cross-check validated the wrong document on arm64, because the observation document had been written into a file named `manifest.json` and the manifest was looked up with an unordered search. |
 | `46018090446` | `7d878ee` | failure | The build and the test step passed; the non-vacuity gate exceeded the time budget of the job. |
+| `46020231721` | `7849527` | failure | The non-vacuity gate failed: the mutations rebuilt the shipped binaries from a mutated source, and the later gates of the job consumed those binaries. |
+| `46021642146` | `b29840b` | failure | The non-vacuity gate failed again, and the reason could not be read: the job log of a failed run needs administrative rights. The gate now reports the reason of every failing phase as a workflow annotation, which is part of the public check-run record. |
+| `46031059134` | `b501bb6` | failure | The annotation identified the phase: the pipe stream identity witness did not detect its mutation. The witness closed the standard output and wrote to the standard error immediately afterwards, so whether the defect was observable depended on a race between the child and the parent. The witness now delays the write, which makes the ordering deterministic. |
 | the final run | the final subject | see the exit receipt | the qualification of the final subject |
 
 Every failure above was **reproduced locally** before it was repaired,
@@ -49,6 +52,13 @@ binary, together with the identity of each:
 The job records the variant of each binary in `build-variants.txt` and
 the digests in `executable-identity.txt`, so that a test-enabled binary
 can never be mistaken for the production one.
+
+The digests of the published artefacts of the final run are:
+
+| Artefact | Digest |
+|---|---|
+| `build-evidence-amd64` | `sha256:800a074a3c6f0c11862973b0329887e9ade59ef29977c0156dc921b8d457de1e` |
+| `build-evidence-arm64` | `sha256:0bbfa5513b0b59edcdd59ddf55965644a50b4ed2c428d06e6a7acce4065ca7cc` |
 
 ## The local runs
 
