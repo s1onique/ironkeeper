@@ -81,7 +81,9 @@ LIVE_SAS_REQUALIFICATION: PENDING - the operator procedure is in
   prerequisite, because the binary loads it at start-up and a host without
   it cannot run the binary at all
 HOST_MODIFICATIONS: NONE - nothing was installed and nothing was changed on
-  the storage host
+  the storage host by this amendment. The host already carried a PCRE 8.45
+  build under /tmp/pcre-8.45 from the predecessor's session, and the
+  operator procedure uses it as the host prerequisite
 HARDWARE_OPERATIONS: NONE - no physical device was opened and no
   intrusive operation was started
 

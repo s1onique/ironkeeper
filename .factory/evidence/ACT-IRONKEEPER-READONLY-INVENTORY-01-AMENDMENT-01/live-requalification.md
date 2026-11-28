@@ -50,6 +50,23 @@ the library, or runs the check on a host that still ships PCRE1. The
 library is placed where the dynamic loader finds it; the procedure
 itself installs nothing.
 
+### The storage host already has a PCRE1 build
+
+The storage host carries a PCRE 8.45 build under `/tmp/pcre-8.45`, with
+the shared library in `/tmp/pcre-8.45/.libs`. It was built during the
+predecessor's session; this amendment did not build it and did not
+install it. The binary starts with it:
+
+```sh
+LD_LIBRARY_PATH=/tmp/pcre-8.45/.libs ironkeeper version --json
+```
+
+That was verified on the host with the predecessor's binary; the
+version command is a pure start-up check and opens no device. The
+operator can therefore use the existing build instead of providing
+one, and can copy the library to a durable location if the check is to
+survive a reboot that clears `/tmp`.
+
 ## The procedure
 
 The procedure runs **only** passive discovery and the explicitly
