@@ -12,8 +12,9 @@ FINAL_HEAD: the branch head that carries this receipt. It is a
   which changes only the evidence documents of this directory and this
   receipt, and changes no production code, no test and no gate. The
   executable source that the recorded run qualified is therefore the
-  executable source of the final branch head as well. The run of the
-  branch head itself is listed in native-ci.md
+  executable source of the final branch head as well. The run of every
+  head of the branch, including the head that carries this receipt, is
+  recorded in the native CI history and listed in native-ci.md
 
 PRODUCTION_TEST_SEAM_ISOLATION: VERIFIED - the tool and the discovery-root
   seams are a compile-time property; the production binary does not read
