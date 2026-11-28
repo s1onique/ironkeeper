@@ -797,6 +797,31 @@ then fail when a schema uses `pattern`. That is a packaging defect, not a
 runtime one, and it is why the dependency is stated here and checked in
 CI rather than left to chance.
 
+#### The library is not available on every distribution
+
+The dependency is a **PCRE1** runtime library. Distributions that have
+moved to PCRE2 only — Debian 13 (trixie) among them — do not ship a
+`libpcre.so.3` at all, and no `libpcre3` package exists for them. On such
+a host the binary does not fail *when a schema uses `pattern*`; it
+fails **at start-up**, because the binding loads the library when the
+module is initialised:
+
+```
+could not load: libpcre.so(.3|.1|)
+```
+
+A host that lacks the library therefore needs one of:
+
+* a `libpcre.so.3` provided by the operator (a PCRE1 build), placed
+  where the dynamic loader finds it; or
+* a distribution that still ships PCRE1.
+
+The Ironkeeper CLI has no command that avoids the dependency, and no
+attempt is made to hide it: the dependency is a property of the
+validator, and a host that cannot provide it cannot run the binary.
+The operator requalification procedure records this as a **host
+prerequisite**, not as a step that the operator has to discover.
+
 Dependency locking: there is **one** dependency-resolution mechanism, and
 it is the exact-commit resolution that CI performs and that
 `tools/qualify_validator.sh` performs. The dependency is fetched at the

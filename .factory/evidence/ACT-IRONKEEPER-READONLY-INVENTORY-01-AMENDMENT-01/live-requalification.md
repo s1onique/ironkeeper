@@ -21,6 +21,35 @@ The digest of the chosen artefact is recorded in the operator's own
 run log. The digest of the CI artefact is the one recorded in
 `native-ci.md`.
 
+## The host prerequisite: the PCRE runtime library
+
+The binary loads `libpcre.so.3` **dynamically at start-up**, because the
+schema validator uses `std/re`. The check for the prerequisite is one
+command, and it is the first step of the procedure:
+
+```sh
+# 0. the host must provide the PCRE1 runtime library
+ldconfig -p | grep -q 'libpcre\.so\.3' || echo "PCRE1 runtime missing"
+```
+
+A host that does not provide it cannot run the binary at all: every
+command fails immediately with
+
+```
+could not load: libpcre.so(.3|.1|)
+```
+
+This is not a defect of the artefact and it is not discovered by the
+operator during the check: it is a **prerequisite of the host**, and
+the operator resolves it before the procedure starts.
+
+The known case is a distribution that has moved to PCRE2 only. Debian 13
+(trixie) is one: it ships no `libpcre.so.3`, and no `libpcre3` package
+exists for it. On such a host the operator provides a PCRE1 build of
+the library, or runs the check on a host that still ships PCRE1. The
+library is placed where the dynamic loader finds it; the procedure
+itself installs nothing.
+
 ## The procedure
 
 The procedure runs **only** passive discovery and the explicitly
