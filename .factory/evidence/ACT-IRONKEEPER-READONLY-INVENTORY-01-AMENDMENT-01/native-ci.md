@@ -57,8 +57,8 @@ The digests of the published artefacts of the final run are:
 
 | Artefact | Digest |
 |---|---|
-| `build-evidence-amd64` | `sha256:800a074a3c6f0c11862973b0329887e9ade59ef29977c0156dc921b8d457de1e` |
-| `build-evidence-arm64` | `sha256:0bbfa5513b0b59edcdd59ddf55965644a50b4ed2c428d06e6a7acce4065ca7cc` |
+| `build-evidence-amd64` | `sha256:b4f92635f190d8bc4fa86b3623c553a3ee3a65cdd6dab64916c5e04c4f6419a3` |
+| `build-evidence-arm64` | `sha256:66cdcc2c98c1239974c935e871d73e332328a2dc659a30580a7cd3f6217d8bc7` |
 
 ## The local runs
 
