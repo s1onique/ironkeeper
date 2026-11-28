@@ -21,7 +21,8 @@ arm64 execution.
 | `46031059134` | `b501bb6` | failure | The annotation identified the phase: the pipe stream identity witness did not detect its mutation. The witness closed the standard output and wrote to the standard error immediately afterwards, so whether the defect was observable depended on a race between the child and the parent. The witness now delays the write, which makes the ordering deterministic. |
 | `46131011331` | `489bafc` | success | the qualification of the repair head `489bafc` |
 | `46131413505` | `96dd3ad` | success | the qualification of the evidence head `96dd3ad` |
-| `46131487334` | `3fc7102` | success | the qualification of the final head `3fc7102`; the artefact digests below are the ones of this run |
+| `46131487334` | `3fc7102` | success | the qualification of the head `3fc7102` |
+| `46138922173` | `8742c55` | success | the qualification of the final head `8742c55`; the artefact digests below are the ones of this run |
 
 Every failure above was **reproduced locally** before it was repaired,
 and every repair was verified with the pinned toolchain (Nim 2.4.2) and
@@ -59,11 +60,13 @@ The digests of the published artefacts of the final run are:
 
 | Artefact | Digest |
 |---|---|
-| `build-evidence-amd64` | `sha256:37e20952655a537f47a07724c39b4422ebc8193d2e1a9d94e8ee238cdeadb6d1` |
-| `build-evidence-arm64` | `sha256:13bc65a79bb3c030a3232433fec9c6837b2238a183d089e7d85c8f4b34e4cba2` |
+| `build-evidence-amd64` | `sha256:c28d72a64f3f88e1bae1ed6b949258ea67fa06c733b1e771df59f71ecd5b7aa8` |
+| `build-evidence-arm64` | `sha256:297b430f529fd93e6a796595a0e59f896bf742f6a757556184f1b82c9936aa73` |
 
-These are the digests of the artefacts of the run `46131487334`, which
-is the run of the final qualified head `3fc7102`.
+These are the digests of the artefacts of the run `46138922173`, which is
+the run of the final qualified head `8742c55`. The commits that follow
+that head on the branch change only the evidence documents of this
+directory, so the executable source is the one that this run compiled.
 
 ## The local runs
 
