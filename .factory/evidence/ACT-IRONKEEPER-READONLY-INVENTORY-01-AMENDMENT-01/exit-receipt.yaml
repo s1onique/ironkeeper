@@ -15,7 +15,8 @@ FINAL_HEAD: the branch head that carries this receipt. It is a
   recorded run qualified is therefore the executable source of the final
   branch head as well. The runs of the heads of the branch are listed in
   native-ci.md; the run of the head that carries this receipt is the
-  final confirmation of the branch
+  final confirmation of the branch, and any later commit changes only
+  these evidence documents
 
 PRODUCTION_TEST_SEAM_ISOLATION: VERIFIED - the tool and the discovery-root
   seams are a compile-time property; the production binary does not read
