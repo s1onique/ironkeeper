@@ -62,8 +62,18 @@ proc runSuite*(): int =
   # ---- the stream identity ------------------------------------------------
   # The standard output closes before the standard error, and the standard
   # error keeps producing data. The captured streams must stay separate.
+  #
+  # The **delay** before the standard error produces its data is part of
+  # the witness, not a convenience. The defect that the witness pins down
+  # is only observable while the standard error is the *only* stream left
+  # in the poll descriptor array: the executor rebuilds that array after
+  # every end of file, so the standard error takes the place of the
+  # standard output. The data must therefore arrive strictly *after* the
+  # standard output reached end of file. Without the delay the witness is
+  # a race between the child and the parent, and it detects the defect
+  # only by luck.
   let outFirst = runTool(ExecRequest(path: sh,
-    args: @["-c", "exec 1>&-; printf 'late-stderr-data' >&2; sleep 0.2"],
+    args: @["-c", "exec 1>&-; sleep 0.5; printf 'late-stderr-data' >&2; sleep 0.5"],
     limits: ExecLimits(deadlineMs: 5000, maxStdoutBytes: 4096,
                         maxStderrBytes: 4096)))
   t.checkEq("the closed standard output is captured as empty",
@@ -72,9 +82,11 @@ proc runSuite*(): int =
                   "late-stderr-data")
 
   # The standard error closes first, and the standard output keeps
-  # producing data.
+  # producing data. The delay plays the same role here: the standard
+  # output must produce its data while it is the only stream left in the
+  # descriptor array.
   let errFirst = runTool(ExecRequest(path: sh,
-    args: @["-c", "exec 2>&-; printf 'late-stdout-data'; sleep 0.2"],
+    args: @["-c", "exec 2>&-; sleep 0.5; printf 'late-stdout-data'; sleep 0.5"],
     limits: ExecLimits(deadlineMs: 5000, maxStdoutBytes: 4096,
                         maxStderrBytes: 4096)))
   t.checkContains("the standard output keeps its own data", errFirst.stdout,
